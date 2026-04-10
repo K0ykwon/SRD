@@ -1,0 +1,39 @@
+{
+  "benchmarks": [
+    "delayed_kv",
+    "needle",
+    "delayed_copy"
+  ],
+  "variants": [
+    "local_only",
+    "srd_without_sufficiency",
+    "srd_with_sufficiency"
+  ],
+  "benchmark_defaults": {
+    "seed": 21,
+    "vocab_size": 64,
+    "context_segments": 6,
+    "gap_segments": 3,
+    "num_distractors": 3,
+    "distractor_density": 2,
+    "pattern_length": 3,
+    "symbol_pool_size": 8,
+    "mode": "easy"
+  },
+  "grid": {
+    "segment_length": [8],
+    "refresh_count": [2],
+    "bank_size": [4],
+    "upper_layer_only_refresh": [true]
+  },
+  "runner": {
+    "train_steps": 160,
+    "eval_batches": 12,
+    "batch_size": 32,
+    "learning_rate": 0.002,
+    "answer_loss_weight": 1.0,
+    "lm_loss_weight": 0.25,
+    "grad_clip_norm": 1.0,
+    "warmup_fraction": 0.1
+  }
+}

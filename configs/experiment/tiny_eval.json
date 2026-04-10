@@ -1,0 +1,8 @@
+{
+  "presets": [
+    "local_tiny",
+    "srd_tiny",
+    "srd_suf_tiny"
+  ],
+  "decode_steps": 16
+}

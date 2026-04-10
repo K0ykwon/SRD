@@ -1,0 +1,17 @@
+{
+  "family": "needle",
+  "seed": 13,
+  "vocab_size": 64,
+  "segment_length": 8,
+  "context_segments": 7,
+  "gap_segments": 4,
+  "num_distractors": 3,
+  "distractor_density": 3,
+  "refresh_count": 2,
+  "bank_size": 4,
+  "upper_layer_only_refresh": true,
+  "local_window": 4,
+  "pattern_length": 3,
+  "symbol_pool_size": 8,
+  "mode": "easy"
+}

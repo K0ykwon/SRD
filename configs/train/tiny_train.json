@@ -1,0 +1,6 @@
+{
+  "steps": 8,
+  "lr": 0.003,
+  "batch_size": 4,
+  "seq_len": 32
+}

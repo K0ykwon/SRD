@@ -1,0 +1,157 @@
+{
+  "seeds": [11, 17, 23],
+  "variants": [
+    "refresh_with_sufficiency",
+    "refresh_with_detail"
+  ],
+  "variant_model_configs": {
+    "refresh_with_sufficiency": "configs/model/block_refresh_with_sufficiency.json",
+    "refresh_with_detail": "configs/model/block_refresh_with_detail.json"
+  },
+  "benchmark_defaults": {
+    "vocab_size": 64,
+    "refresh_count": 2,
+    "bank_size": 4,
+    "upper_layer_only_refresh": true,
+    "context_segments": 10,
+    "gap_segments": 6,
+    "num_distractors": 4,
+    "distractor_density": 3,
+    "pattern_length": 3,
+    "symbol_pool_size": 8,
+    "mode": "easy"
+  },
+  "runner": {
+    "train_steps": 140,
+    "eval_batches": 10,
+    "batch_size": 24,
+    "learning_rate": 0.002,
+    "answer_loss_weight": 1.0,
+    "lm_loss_weight": 0.25,
+    "grad_clip_norm": 1.0,
+    "warmup_fraction": 0.1
+  },
+  "tasks": [
+    {
+      "label": "needle_long",
+      "category": "refresh_hostile",
+      "family": "needle",
+      "benchmark_overrides": {
+        "block_size": 8,
+        "refresh_slots": 2,
+        "context_segments": 10,
+        "distractor_density": 3,
+        "symbol_pool_size": 8,
+        "mode": "easy"
+      }
+    },
+    {
+      "label": "delayed_copy_long",
+      "category": "refresh_hostile",
+      "family": "delayed_copy",
+      "benchmark_overrides": {
+        "block_size": 8,
+        "refresh_slots": 2,
+        "context_segments": 10,
+        "gap_segments": 6,
+        "pattern_length": 3,
+        "symbol_pool_size": 8,
+        "mode": "easy"
+      }
+    }
+  ],
+  "sweeps": [
+    {
+      "name": "detail_slots",
+      "parameter": "detail_slots",
+      "values": [2, 4, 8],
+      "variants": ["refresh_with_detail"],
+      "seeds": [11, 17, 23],
+      "runner": {
+        "train_steps": 100,
+        "eval_batches": 8,
+        "batch_size": 24,
+        "learning_rate": 0.002,
+        "answer_loss_weight": 1.0,
+        "lm_loss_weight": 0.25,
+        "grad_clip_norm": 1.0,
+        "warmup_fraction": 0.1
+      },
+      "tasks": [
+        {
+          "label": "needle_long_detail_slots",
+          "category": "refresh_hostile",
+          "family": "needle",
+          "benchmark_overrides": {
+            "block_size": 8,
+            "refresh_slots": 2,
+            "context_segments": 10,
+            "distractor_density": 3,
+            "symbol_pool_size": 8,
+            "mode": "easy"
+          }
+        },
+        {
+          "label": "delayed_copy_long_detail_slots",
+          "category": "refresh_hostile",
+          "family": "delayed_copy",
+          "benchmark_overrides": {
+            "block_size": 8,
+            "refresh_slots": 2,
+            "context_segments": 10,
+            "gap_segments": 6,
+            "pattern_length": 3,
+            "symbol_pool_size": 8,
+            "mode": "easy"
+          }
+        }
+      ]
+    },
+    {
+      "name": "detail_topk",
+      "parameter": "detail_topk",
+      "values": [1, 2, 4],
+      "variants": ["refresh_with_detail"],
+      "seeds": [11, 17, 23],
+      "runner": {
+        "train_steps": 100,
+        "eval_batches": 8,
+        "batch_size": 24,
+        "learning_rate": 0.002,
+        "answer_loss_weight": 1.0,
+        "lm_loss_weight": 0.25,
+        "grad_clip_norm": 1.0,
+        "warmup_fraction": 0.1
+      },
+      "tasks": [
+        {
+          "label": "needle_long_detail_topk",
+          "category": "refresh_hostile",
+          "family": "needle",
+          "benchmark_overrides": {
+            "block_size": 8,
+            "refresh_slots": 2,
+            "context_segments": 10,
+            "distractor_density": 3,
+            "symbol_pool_size": 8,
+            "mode": "easy"
+          }
+        },
+        {
+          "label": "delayed_copy_long_detail_topk",
+          "category": "refresh_hostile",
+          "family": "delayed_copy",
+          "benchmark_overrides": {
+            "block_size": 8,
+            "refresh_slots": 2,
+            "context_segments": 10,
+            "gap_segments": 6,
+            "pattern_length": 3,
+            "symbol_pool_size": 8,
+            "mode": "easy"
+          }
+        }
+      ]
+    }
+  ]
+}
