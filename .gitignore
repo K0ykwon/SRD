@@ -22,6 +22,10 @@ htmlcov/
 
 # Local outputs
 artifacts/
+!artifacts/
+artifacts/*
+!artifacts/final_best_model_comparison/
+!artifacts/final_best_model_comparison/**
 outputs/
 logs/
 *.log
