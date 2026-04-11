@@ -15,6 +15,8 @@ This file outlines the first experimental agenda for SRD.
 - `transformer_local`: standard local/sliding-window decoder with no long-memory pathway
 - `transformer_full`: standard full-attention decoder used as a stronger conventional comparator
 - `summary_memory`: bounded segment-summary bank that ordinary token states may read directly
+- `transformer_xl_style`: bounded recurrent token-memory baseline with direct token-path access to cached past states
+- `perceiver_latent`: shared latent-array baseline with learned latent slots reused across blocks
 - SRD with refresh routing but no sufficiency loss
 - SRD with refresh routing and sufficiency loss
 
@@ -50,6 +52,8 @@ Current runnable presets:
 - `transformer_local_matched`: parameter-aware local-window Transformer baseline
 - `transformer_full_matched`: parameter-aware full-attention Transformer baseline
 - `summary_memory_matched`: parameter-aware direct summary-memory baseline
+- `transformer_xl_style_tiny`: bounded recurrent token-memory baseline
+- `perceiver_latent_tiny`: shared latent-array baseline
 - `srd_tiny`: SRD with refresh path and zero sufficiency weight
 - `srd_suf_tiny`: SRD with refresh path and next-segment summary sufficiency loss
 
@@ -73,6 +77,9 @@ Current commands:
 - `bash scripts/run_transformer_full.sh`
 - `bash scripts/run_summary_memory.sh`
 - `bash scripts/run_strong_baselines_suite.sh`
+- `bash scripts/run_final_best_model_comparison.sh`
+- `bash scripts/run_length_scaling.sh`
+- `bash scripts/run_parameter_scaling.sh`
 - `bash scripts/run_ablation_sweep.sh`
 
 Primary reported comparison suite:
@@ -159,6 +166,8 @@ The markdown notes include:
 ## Core Ablations
 
 - segment length
+- context length scaling at fixed block size
+- parameter scaling at fixed task family and block schedule
 - refresh count
 - bank size and bank update rule
 - upper-layer-only versus all-layer refresh-conditioned use

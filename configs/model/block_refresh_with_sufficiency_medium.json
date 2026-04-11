@@ -1,0 +1,22 @@
+{
+  "model_type": "srd_block_refresh",
+  "vocab_size": 64,
+  "d_model": 128,
+  "num_heads": 8,
+  "num_layers": 6,
+  "block_size": 8,
+  "segment_length": 8,
+  "local_window": 4,
+  "refresh_slots": 2,
+  "refresh_count": 2,
+  "refresh_dim": 128,
+  "bank_size": 4,
+  "num_local_layers_pre": 2,
+  "num_local_layers_post": 2,
+  "upper_layer_only_refresh": true,
+  "refresh_enabled": true,
+  "use_refresh": true,
+  "sufficiency_loss_weight": 0.25,
+  "dropout_p": 0.0,
+  "causal": true
+}

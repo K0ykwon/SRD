@@ -19,6 +19,29 @@ from srd.modeling.factory import build_model
 from srd.training.losses import compute_answer_loss, compute_srd_loss
 
 
+def canonical_variant_name(variant: str) -> str:
+    """Maps scale-specific variant labels back to the shared model family."""
+    if variant.startswith("transformer_full"):
+        return "transformer_full"
+    if variant.startswith("transformer_local"):
+        return "transformer_local"
+    if variant.startswith("summary_memory"):
+        return "summary_memory"
+    if variant.startswith("transformer_xl_style"):
+        return "transformer_xl_style"
+    if variant.startswith("perceiver_latent"):
+        return "perceiver_latent"
+    if variant.startswith("refresh_with_detail"):
+        return "refresh_with_detail"
+    if variant.startswith("refresh_with_sufficiency"):
+        return "refresh_with_sufficiency"
+    if variant.startswith("refresh_no_sufficiency"):
+        return "refresh_no_sufficiency"
+    if variant.startswith("local_only"):
+        return "local_only"
+    return variant
+
+
 def _peak_memory_bytes(device: torch.device, input_ids: torch.Tensor, config: SRDConfig) -> float:
     """Returns GPU peak memory or a documented CPU estimate."""
     if device.type == "cuda":
@@ -48,81 +71,98 @@ def build_model_config(
     model_config_path: str | None = None,
 ) -> SRDConfig:
     """Builds the shared model config for one benchmark variant."""
+    canonical_variant = canonical_variant_name(variant)
     if model_config_path is not None:
         config = SRDConfig.from_json_file(model_config_path)
     else:
-        if variant in {"local_only", "transformer_local"}:
+        if canonical_variant in {"local_only", "transformer_local"}:
             config = SRDConfig.preset("local_tiny")
-        elif variant == "refresh_no_sufficiency":
+        elif canonical_variant == "transformer_xl_style":
+            config = SRDConfig.preset("transformer_xl_style_tiny")
+        elif canonical_variant == "perceiver_latent":
+            config = SRDConfig.preset("perceiver_latent_tiny")
+        elif canonical_variant == "refresh_no_sufficiency":
             config = SRDConfig.preset("block_refresh_tiny")
-        elif variant == "refresh_with_sufficiency":
+        elif canonical_variant == "refresh_with_sufficiency":
             config = SRDConfig.preset("block_refresh_suf_tiny")
-        elif variant in {"refresh_with_detail", "refresh_detail_with_sufficiency"}:
+        elif canonical_variant in {"refresh_with_detail", "refresh_detail_with_sufficiency"}:
             config = SRDConfig.preset("block_refresh_detail_tiny")
-        elif variant == "refresh_detail_no_sufficiency":
+        elif canonical_variant == "refresh_detail_no_sufficiency":
             config = SRDConfig.preset("block_refresh_detail_no_suf_tiny")
-        elif variant == "transformer_full":
+        elif canonical_variant == "transformer_full":
             config = SRDConfig.preset("transformer_full_tiny")
-        elif variant == "summary_memory":
+        elif canonical_variant == "summary_memory":
             config = SRDConfig.preset("summary_memory_tiny")
-        elif variant == "srd_without_sufficiency":
+        elif canonical_variant == "srd_without_sufficiency":
             config = SRDConfig.preset("srd_tiny")
-        elif variant == "srd_with_sufficiency":
+        elif canonical_variant == "srd_with_sufficiency":
             config = SRDConfig.preset("srd_suf_tiny")
         else:
             raise ValueError(f"Unknown variant: {variant}")
 
-    if variant in {"local_only", "transformer_local"} and config.model_type != "srd_block_refresh":
+    if canonical_variant in {"local_only", "transformer_local"} and config.model_type != "srd_block_refresh":
         config.model_type = "transformer_local"
         config.use_refresh = False
         config.refresh_enabled = False
         config.sufficiency_loss_weight = 0.0
-    elif variant == "local_only" and config.model_type == "srd_block_refresh":
+    elif canonical_variant == "local_only" and config.model_type == "srd_block_refresh":
         config.refresh_enabled = False
         config.use_refresh = False
         config.sufficiency_loss_weight = 0.0
-    elif variant == "refresh_no_sufficiency":
+    elif canonical_variant == "refresh_no_sufficiency":
         config.model_type = "srd_block_refresh"
         config.refresh_enabled = True
         config.use_refresh = True
         config.sufficiency_loss_weight = 0.0
-    elif variant == "refresh_with_sufficiency":
+    elif canonical_variant == "refresh_with_sufficiency":
         config.model_type = "srd_block_refresh"
         config.refresh_enabled = True
         config.use_refresh = True
         config.detail_enabled = False
         config.sufficiency_loss_weight = max(config.sufficiency_loss_weight, 0.25)
-    elif variant in {"refresh_with_detail", "refresh_detail_with_sufficiency"}:
+    elif canonical_variant in {"refresh_with_detail", "refresh_detail_with_sufficiency"}:
         config.model_type = "srd_block_refresh_detail"
         config.refresh_enabled = True
         config.use_refresh = True
         config.detail_enabled = True
         config.sufficiency_loss_weight = max(config.sufficiency_loss_weight, 0.25)
-    elif variant == "refresh_detail_no_sufficiency":
+    elif canonical_variant == "refresh_detail_no_sufficiency":
         config.model_type = "srd_block_refresh_detail"
         config.refresh_enabled = True
         config.use_refresh = True
         config.detail_enabled = True
         config.sufficiency_loss_weight = 0.0
-    elif variant == "transformer_full":
+    elif canonical_variant == "transformer_full":
         config.model_type = "transformer_full"
         config.use_refresh = False
         config.refresh_enabled = False
         config.detail_enabled = False
         config.sufficiency_loss_weight = 0.0
-    elif variant == "summary_memory":
+    elif canonical_variant == "transformer_xl_style":
+        config.model_type = "transformer_xl_style"
+        config.use_refresh = False
+        config.refresh_enabled = False
+        config.detail_enabled = False
+        config.sufficiency_loss_weight = 0.0
+    elif canonical_variant == "perceiver_latent":
+        config.model_type = "perceiver_latent"
+        config.use_refresh = False
+        config.refresh_enabled = False
+        config.detail_enabled = False
+        config.sufficiency_loss_weight = 0.0
+    elif canonical_variant == "summary_memory":
         config.model_type = "summary_memory"
         config.use_refresh = False
         config.refresh_enabled = False
         config.detail_enabled = False
         config.sufficiency_loss_weight = 0.0
-    elif variant == "srd_without_sufficiency":
+    elif canonical_variant == "srd_without_sufficiency":
         config.model_type = "srd"
         config.use_refresh = True
         config.refresh_enabled = True
         config.detail_enabled = False
         config.sufficiency_loss_weight = 0.0
-    elif variant == "srd_with_sufficiency":
+    elif canonical_variant == "srd_with_sufficiency":
         config.model_type = "srd"
         config.use_refresh = True
         config.refresh_enabled = True

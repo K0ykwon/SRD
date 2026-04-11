@@ -1,5 +1,6 @@
 """Model components for SRD plus external long-context baseline variants."""
 
+from srd.modeling.advanced_baselines import PerceiverLatentModel, TransformerXLStyleMemoryModel
 from srd.modeling.baseline_models import SummaryMemoryModel, TransformerFullModel, TransformerLocalModel
 from srd.modeling.block_refresh_detail_model import BlockRefreshDetailModel
 from srd.modeling.block_refresh_model import BlockRefreshModel
@@ -18,10 +19,12 @@ __all__ = [
     "FullBlock",
     "LocalBlock",
     "LongMemoryBank",
+    "PerceiverLatentModel",
     "RefreshBlock",
     "SRDModel",
     "SummaryMemoryModel",
     "TokenMemoryBlock",
     "TransformerFullModel",
     "TransformerLocalModel",
+    "TransformerXLStyleMemoryModel",
 ]

@@ -1,0 +1,92 @@
+{
+  "seeds": [11, 17, 23],
+  "variants": [
+    "transformer_local",
+    "transformer_full",
+    "summary_memory",
+    "transformer_xl_style",
+    "perceiver_latent",
+    "local_only",
+    "refresh_no_sufficiency",
+    "refresh_with_sufficiency",
+    "refresh_with_detail"
+  ],
+  "variant_model_configs": {
+    "transformer_local": "configs/model/transformer_local_matched.json",
+    "transformer_full": "configs/model/transformer_full_matched.json",
+    "summary_memory": "configs/model/summary_memory_matched.json",
+    "transformer_xl_style": "configs/model/transformer_xl_style_matched.json",
+    "perceiver_latent": "configs/model/perceiver_latent_matched.json",
+    "local_only": "configs/model/block_refresh_local_only.json",
+    "refresh_no_sufficiency": "configs/model/block_refresh_no_sufficiency.json",
+    "refresh_with_sufficiency": "configs/model/block_refresh_with_sufficiency.json",
+    "refresh_with_detail": "configs/model/block_refresh_with_detail.json"
+  },
+  "benchmark_defaults": {
+    "vocab_size": 64,
+    "refresh_count": 2,
+    "bank_size": 4,
+    "upper_layer_only_refresh": true,
+    "context_segments": 10,
+    "gap_segments": 6,
+    "num_distractors": 4,
+    "distractor_density": 3,
+    "pattern_length": 3,
+    "symbol_pool_size": 8,
+    "mode": "easy"
+  },
+  "runner": {
+    "train_steps": 120,
+    "eval_batches": 8,
+    "batch_size": 24,
+    "learning_rate": 0.002,
+    "answer_loss_weight": 1.0,
+    "lm_loss_weight": 0.25,
+    "grad_clip_norm": 1.0,
+    "warmup_fraction": 0.1
+  },
+  "tasks": [
+    {
+      "label": "delayed_kv_short",
+      "category": "refresh_friendly",
+      "family": "delayed_kv",
+      "benchmark_overrides": {
+        "block_size": 8,
+        "refresh_slots": 2,
+        "context_segments": 6,
+        "gap_segments": 3,
+        "num_distractors": 3,
+        "symbol_pool_size": 8,
+        "mode": "easy"
+      }
+    },
+    {
+      "label": "needle_long",
+      "category": "refresh_hostile",
+      "family": "needle",
+      "benchmark_overrides": {
+        "block_size": 8,
+        "refresh_slots": 2,
+        "context_segments": 10,
+        "distractor_density": 3,
+        "symbol_pool_size": 8,
+        "mode": "easy"
+      }
+    },
+    {
+      "label": "delayed_copy_long",
+      "category": "refresh_hostile",
+      "family": "delayed_copy",
+      "benchmark_overrides": {
+        "block_size": 8,
+        "refresh_slots": 2,
+        "context_segments": 10,
+        "gap_segments": 6,
+        "pattern_length": 3,
+        "symbol_pool_size": 8,
+        "mode": "easy"
+      }
+    }
+  ],
+  "sweeps": []
+}

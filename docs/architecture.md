@@ -164,12 +164,16 @@ The repo now carries explicit non-SRD comparison models so evaluation can test w
 - `transformer_local`: a standard decoder with local/sliding-window causal attention only, no bank, no refresh states, no sufficiency objective
 - `transformer_full`: a standard decoder with full causal self-attention over the visible prefix, no bank, no refresh states, no sufficiency objective
 - `summary_memory`: segment summaries are written into a bounded bank and ordinary token states may read that bank directly
+- `transformer_xl_style`: a bounded recurrent token-memory baseline where current block tokens read a cache of past token states directly
+- `perceiver_latent`: a shared-latent baseline where all blocks communicate through a learned latent array instead of a refresh-only bottleneck
 
 These baselines are intentionally different from SRD:
 
 - `transformer_local` tests whether any gain is simply from stronger local modeling
 - `transformer_full` tests whether SRD can approach a stronger conventional Transformer comparator
 - `summary_memory` tests the criticism that a simple shared summary bank may be enough without a refresh-only bottleneck
+- `transformer_xl_style` tests whether a conventional recurrent token-memory path is enough without a refresh bottleneck
+- `perceiver_latent` tests whether a shared latent bottleneck can match SRD without SRD's scheduled refresh constraint
 
 Only SRD preserves all three core claims together:
 

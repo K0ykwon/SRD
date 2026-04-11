@@ -30,6 +30,8 @@ class SRDConfig:
     detail_anchor_first: bool = True
     detail_anchor_last: bool = True
     detail_saliency_slots: int = 2
+    memory_blocks: int = 4
+    latent_slots: int = 8
     bank_size: int = 4
     num_local_layers_pre: int = 1
     num_local_layers_post: int = 1
@@ -49,6 +51,8 @@ class SRDConfig:
             "srd_block_refresh_detail",
             "transformer_local",
             "transformer_full",
+            "transformer_xl_style",
+            "perceiver_latent",
             "summary_memory",
         }
         if self.model_type not in valid_model_types:
@@ -73,6 +77,10 @@ class SRDConfig:
             raise ValueError("detail_topk must be positive")
         if self.detail_saliency_slots < 0:
             raise ValueError("detail_saliency_slots must be non-negative")
+        if self.memory_blocks <= 0:
+            raise ValueError("memory_blocks must be positive")
+        if self.latent_slots <= 0:
+            raise ValueError("latent_slots must be positive")
         if self.bank_size <= 0:
             raise ValueError("bank_size must be positive")
         if self.num_local_layers_pre < 0 or self.num_local_layers_post < 0:
@@ -203,6 +211,28 @@ class SRDConfig:
                 sufficiency_loss_weight=0.0,
                 upper_layer_only_refresh=True,
                 num_layers=4,
+            ),
+            "transformer_xl_style_tiny": cls(
+                model_type="transformer_xl_style",
+                block_size=8,
+                segment_length=8,
+                use_refresh=False,
+                refresh_enabled=False,
+                sufficiency_loss_weight=0.0,
+                upper_layer_only_refresh=True,
+                num_layers=4,
+                memory_blocks=4,
+            ),
+            "perceiver_latent_tiny": cls(
+                model_type="perceiver_latent",
+                block_size=8,
+                segment_length=8,
+                use_refresh=False,
+                refresh_enabled=False,
+                sufficiency_loss_weight=0.0,
+                upper_layer_only_refresh=True,
+                num_layers=4,
+                latent_slots=8,
             ),
             "block_refresh_local_tiny": cls(
                 model_type="srd_block_refresh",

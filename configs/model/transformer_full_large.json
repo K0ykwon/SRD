@@ -1,0 +1,20 @@
+{
+  "model_type": "transformer_full",
+  "vocab_size": 64,
+  "d_model": 192,
+  "num_heads": 8,
+  "num_layers": 8,
+  "segment_length": 8,
+  "local_window": 4,
+  "refresh_count": 2,
+  "bank_size": 4,
+  "num_local_layers_pre": 3,
+  "num_local_layers_post": 3,
+  "upper_layer_only_refresh": true,
+  "use_refresh": false,
+  "refresh_enabled": false,
+  "detail_enabled": false,
+  "sufficiency_loss_weight": 0.0,
+  "dropout_p": 0.0,
+  "causal": true
+}

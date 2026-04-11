@@ -26,6 +26,14 @@ artifacts/
 artifacts/*
 !artifacts/final_best_model_comparison/
 !artifacts/final_best_model_comparison/**
+!artifacts/length_scaling/
+!artifacts/length_scaling/**
+!artifacts/parameter_scaling/
+!artifacts/parameter_scaling/**
+!artifacts/parameter_scaling_long/
+!artifacts/parameter_scaling_long/**
+!artifacts/parameter_scaling_compact_long/
+!artifacts/parameter_scaling_compact_long/**
 outputs/
 logs/
 *.log

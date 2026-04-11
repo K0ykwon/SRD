@@ -128,6 +128,8 @@ def _sweep_runs(experiment: dict) -> list[dict]:
 def _prepare_run_result(base_result: dict, spec: dict) -> dict:
     """Attaches task and sweep metadata to one benchmark result."""
     result = dict(base_result)
+    result["model_variant"] = base_result.get("variant", spec["variant"])
+    result["variant"] = spec["variant"]
     result["task_label"] = spec["task_label"]
     result["task_category"] = spec["task_category"]
     result["analysis_group"] = spec["analysis_group"]
@@ -379,6 +381,7 @@ def write_analysis(results: list[dict], output_dir: str | Path) -> None:
     _plot_refresh_vs_no_suff(results, analysis_dir)
     _plot_sweep(results, analysis_dir, "block_size", "Effect of Block Size", "effect_of_block_size.png")
     _plot_sweep(results, analysis_dir, "sufficiency_loss_weight", "Effect of Sufficiency Loss Weight", "effect_of_sufficiency_loss_weight.png")
+    _plot_sweep(results, analysis_dir, "context_segments", "Effect of Context Length", "effect_of_context_length.png")
     _plot_sweep(results, analysis_dir, "detail_slots", "Effect of Detail Slots", "effect_of_detail_slots.png")
     _plot_sweep(results, analysis_dir, "detail_topk", "Effect of Detail Top-K", "effect_of_detail_topk.png")
     _plot_scatter(results, analysis_dir, "parameter_count", "accuracy_vs_parameter_count.png", "Accuracy vs Parameter Count")
@@ -392,6 +395,7 @@ def write_analysis(results: list[dict], output_dir: str | Path) -> None:
         "refresh_with_vs_without_sufficiency.png",
         "effect_of_block_size.png",
         "effect_of_sufficiency_loss_weight.png",
+        "effect_of_context_length.png",
         "effect_of_detail_slots.png",
         "effect_of_detail_topk.png",
         "accuracy_vs_parameter_count.png",

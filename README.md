@@ -132,6 +132,9 @@ Run the external comparison suite:
 
 ```bash
 bash scripts/run_strong_baselines_suite.sh
+bash scripts/run_final_best_model_comparison.sh
+bash scripts/run_length_scaling.sh
+bash scripts/run_parameter_scaling.sh
 ```
 
 Run individual conventional baselines on a chosen synthetic benchmark config:
@@ -171,6 +174,7 @@ Initial experiments are intended to answer whether SRD is promising at all.
 
 - local-only baseline vs SRD
 - parameter-aware `transformer_local` vs `transformer_full` vs `summary_memory` vs SRD
+- add `transformer_xl_style` and `perceiver_latent` comparators to test whether SRD helps for reasons stronger conventional alternatives do not already cover
 - SRD without sufficiency loss vs SRD with sufficiency loss
 - delayed key-value retrieval across a controllable gap
 - multi-segment needle retrieval with distractors

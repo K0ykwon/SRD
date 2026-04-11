@@ -329,7 +329,12 @@ Execution notes:
 - [x] External baseline comparison suite implemented
 - [x] Parameter-aware conventional baseline presets implemented
 - [x] Paper-ready block-refresh SRD variant implemented
-- [ ] Block-refresh detail-memory variant implemented
+- [x] Block-refresh detail-memory variant implemented
+- [x] Final comparison baselines and focused comparison suite implemented
+- [x] Length-scaling comparison suite implemented and run
+- [x] Parameter-scaling comparison suite implemented and run
+- [ ] Long-budget parameter-scaling suite implemented and run
+- [ ] Compact 3-scale long-budget suite implemented and run
 
 ## Surprises & Discoveries
 
@@ -362,6 +367,11 @@ Execution notes:
 - Observation: The first block-refresh paper variant still fails badly on delayed-copy-style precise recall tasks even when it is strong on some long-context retrieval settings.
 - Impact: A second paper-facing variant should add only a tiny bounded detail path, not a return to dense cross-block attention.
 - Follow-up: Add a small per-block detail-slot memory with sparse top-k retrieval and test whether it helps delayed_copy_long without destroying the strong needle_long behavior.
+
+- Date: 2026-04-10
+- Observation: The detail-memory extension improved both needle_long and delayed_copy_long, which makes it the strongest SRD-side candidate for a final baseline comparison pass.
+- Impact: The next comparison phase should include additional conventional comparators that can match either token-level recurrent memory or latent-bottleneck behavior.
+- Follow-up: Add minimal Transformer-XL-style and Perceiver-style baselines, then run a focused multi-model comparison grouped by parameter scale and throughput.
 
 ## Decision Log
 
@@ -414,6 +424,11 @@ Execution notes:
   Decision: The detail-memory extension will remain strictly auxiliary: a tiny number of per-block detail slots, sparse global top-k retrieval, and simple gated fusion with the existing refresh carry.
   Reason: The goal is to recover some non-compressible detail without abandoning the refresh bottleneck or drifting into full cross-block attention.
   Consequence: The new variant can be compared cleanly against the existing paper ablations as `refresh_with_detail`, with detail disabled by default in the base block-refresh model.
+
+- 2026-04-10:
+  Decision: The final focused comparison will use the best current SRD candidate (`refresh_with_detail`, default detail settings) against existing baselines plus two new lightweight comparators: token-level recurrent memory and latent-bottleneck memory.
+  Reason: This keeps the comparison relevant to the paper claim without reopening the full experiment matrix.
+  Consequence: Final reporting can compare models by raw quality, throughput, and rough parameter/throughput-matched groupings on a small set of representative tasks.
 
 - YYYY-MM-DD:
   Decision:

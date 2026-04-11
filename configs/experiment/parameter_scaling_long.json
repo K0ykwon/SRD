@@ -1,0 +1,92 @@
+{
+  "seeds": [11, 17],
+  "variants": [
+    "transformer_full_small",
+    "transformer_full_medium",
+    "transformer_full_large",
+    "refresh_with_sufficiency_small",
+    "refresh_with_sufficiency_medium",
+    "refresh_with_sufficiency_large",
+    "refresh_with_detail_small",
+    "refresh_with_detail_medium",
+    "refresh_with_detail_large"
+  ],
+  "variant_model_configs": {
+    "transformer_full_small": "configs/model/transformer_full_small.json",
+    "transformer_full_medium": "configs/model/transformer_full_medium.json",
+    "transformer_full_large": "configs/model/transformer_full_large.json",
+    "refresh_with_sufficiency_small": "configs/model/block_refresh_with_sufficiency_small.json",
+    "refresh_with_sufficiency_medium": "configs/model/block_refresh_with_sufficiency_medium.json",
+    "refresh_with_sufficiency_large": "configs/model/block_refresh_with_sufficiency_large.json",
+    "refresh_with_detail_small": "configs/model/block_refresh_with_detail_small.json",
+    "refresh_with_detail_medium": "configs/model/block_refresh_with_detail_medium.json",
+    "refresh_with_detail_large": "configs/model/block_refresh_with_detail_large.json"
+  },
+  "benchmark_defaults": {
+    "vocab_size": 64,
+    "refresh_count": 2,
+    "bank_size": 4,
+    "upper_layer_only_refresh": true,
+    "context_segments": 10,
+    "gap_segments": 6,
+    "num_distractors": 4,
+    "distractor_density": 3,
+    "pattern_length": 3,
+    "symbol_pool_size": 8,
+    "mode": "easy"
+  },
+  "runner": {
+    "train_steps": 360,
+    "eval_batches": 10,
+    "batch_size": 24,
+    "learning_rate": 0.0015,
+    "answer_loss_weight": 1.0,
+    "lm_loss_weight": 0.25,
+    "grad_clip_norm": 1.0,
+    "warmup_fraction": 0.1
+  },
+  "tasks": [
+    {
+      "label": "delayed_kv_short",
+      "category": "refresh_friendly",
+      "family": "delayed_kv",
+      "benchmark_overrides": {
+        "block_size": 8,
+        "refresh_slots": 2,
+        "context_segments": 6,
+        "gap_segments": 3,
+        "num_distractors": 3,
+        "symbol_pool_size": 8,
+        "mode": "easy"
+      }
+    },
+    {
+      "label": "needle_long",
+      "category": "refresh_hostile",
+      "family": "needle",
+      "benchmark_overrides": {
+        "block_size": 8,
+        "refresh_slots": 2,
+        "context_segments": 10,
+        "distractor_density": 3,
+        "symbol_pool_size": 8,
+        "mode": "easy"
+      }
+    },
+    {
+      "label": "delayed_copy_long",
+      "category": "refresh_hostile",
+      "family": "delayed_copy",
+      "benchmark_overrides": {
+        "block_size": 8,
+        "refresh_slots": 2,
+        "context_segments": 10,
+        "gap_segments": 6,
+        "pattern_length": 3,
+        "symbol_pool_size": 8,
+        "mode": "easy"
+      }
+    }
+  ],
+  "sweeps": []
+}
