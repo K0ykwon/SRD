@@ -79,7 +79,7 @@ Current commands:
 - `bash scripts/run_strong_baselines_suite.sh`
 - `bash scripts/run_final_best_model_comparison.sh`
 - `bash scripts/run_length_scaling.sh`
-- `bash scripts/run_parameter_scaling.sh`
+- `bash scripts/run_parameter_scaling_compact_long.sh`
 - `bash scripts/run_ablation_sweep.sh`
 
 Primary reported comparison suite:
@@ -167,7 +167,10 @@ The markdown notes include:
 
 - segment length
 - context length scaling at fixed block size
-- parameter scaling at fixed task family and block schedule
+- parameter scaling at fixed task family and block schedule, using the compact long-budget sweep as the main reported suite
+  - `small`: original matched small models, about `0.19M` to `0.21M` parameters
+  - `medium`: new intermediate models, about `0.40M` to `0.48M` parameters
+  - `large`: former medium models, about `1.14M` to `1.21M` parameters
 - refresh count
 - bank size and bank update rule
 - upper-layer-only versus all-layer refresh-conditioned use
@@ -181,6 +184,7 @@ The markdown notes include:
 - report memory and throughput on the same hardware class
 - separate training-time and decode-time measurements
 - make it clear when gains come from lower memory rather than absolute speed
+- retire scaling suites with overly large gaps between adjacent parameter tiers once a tighter replacement exists
 
 ## Early Prototype Milestones
 

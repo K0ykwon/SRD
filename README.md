@@ -134,8 +134,16 @@ Run the external comparison suite:
 bash scripts/run_strong_baselines_suite.sh
 bash scripts/run_final_best_model_comparison.sh
 bash scripts/run_length_scaling.sh
-bash scripts/run_parameter_scaling.sh
+bash scripts/run_parameter_scaling_compact_long.sh
 ```
+
+Current main parameter-scaling suite:
+
+- `small`: the original matched small models, about `0.19M` to `0.21M` parameters
+- `medium`: a new intermediate scale, about `0.40M` to `0.48M` parameters
+- `large`: the former medium scale, about `1.14M` to `1.21M` parameters
+
+The older wider-gap scaling suites were retired so the reported scaling comparisons focus on this tighter `small / medium / large` progression.
 
 Run individual conventional baselines on a chosen synthetic benchmark config:
 

@@ -12,14 +12,14 @@
     "refresh_with_detail_large"
   ],
   "variant_model_configs": {
-    "transformer_full_small": "configs/model/transformer_full_xsmall.json",
-    "transformer_full_medium": "configs/model/transformer_full_small.json",
+    "transformer_full_small": "configs/model/transformer_full_small.json",
+    "transformer_full_medium": "configs/model/transformer_full_midscale.json",
     "transformer_full_large": "configs/model/transformer_full_medium.json",
-    "refresh_with_sufficiency_small": "configs/model/block_refresh_with_sufficiency_xsmall.json",
-    "refresh_with_sufficiency_medium": "configs/model/block_refresh_with_sufficiency_small.json",
+    "refresh_with_sufficiency_small": "configs/model/block_refresh_with_sufficiency_small.json",
+    "refresh_with_sufficiency_medium": "configs/model/block_refresh_with_sufficiency_midscale.json",
     "refresh_with_sufficiency_large": "configs/model/block_refresh_with_sufficiency_medium.json",
-    "refresh_with_detail_small": "configs/model/block_refresh_with_detail_xsmall.json",
-    "refresh_with_detail_medium": "configs/model/block_refresh_with_detail_small.json",
+    "refresh_with_detail_small": "configs/model/block_refresh_with_detail_small.json",
+    "refresh_with_detail_medium": "configs/model/block_refresh_with_detail_midscale.json",
     "refresh_with_detail_large": "configs/model/block_refresh_with_detail_medium.json"
   },
   "benchmark_defaults": {

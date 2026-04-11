@@ -4,9 +4,9 @@
 
 | task | best_variant | category | metric | value | params | tok/s |
 | --- | --- | --- | --- | ---: | ---: | ---: |
-| delayed_copy_long | transformer_full_medium | refresh_hostile | exact_match | 1.0000 | 208256 | 453559.00 |
-| delayed_kv_short | refresh_with_detail_large | refresh_friendly | accuracy | 1.0000 | 1206658 | 96539.81 |
-| needle_long | transformer_full_large | refresh_hostile | accuracy | 1.0000 | 1206272 | 540184.06 |
+| delayed_copy_long | transformer_full_small | refresh_hostile | exact_match | 1.0000 | 208256 | 451756.01 |
+| delayed_kv_short | refresh_with_detail_medium | refresh_friendly | accuracy | 1.0000 | 477682 | 97652.03 |
+| needle_long | refresh_with_sufficiency_small | refresh_hostile | accuracy | 1.0000 | 191680 | 174896.60 |
 
 ## Interpretation
 

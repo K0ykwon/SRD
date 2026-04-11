@@ -332,9 +332,9 @@ Execution notes:
 - [x] Block-refresh detail-memory variant implemented
 - [x] Final comparison baselines and focused comparison suite implemented
 - [x] Length-scaling comparison suite implemented and run
-- [x] Parameter-scaling comparison suite implemented and run
-- [ ] Long-budget parameter-scaling suite implemented and run
-- [ ] Compact 3-scale long-budget suite implemented and run
+- [x] Parameter-scaling comparison suite implemented and later retired
+- [x] Long-budget parameter-scaling suite implemented and later retired
+- [x] Corrected compact 3-scale long-budget suite implemented and run
 
 ## Surprises & Discoveries
 
@@ -357,6 +357,11 @@ Execution notes:
 - Observation: Internal SRD ablations are no longer enough to support the main research claim because they do not distinguish scheduled refresh-only access from simpler conventional alternatives.
 - Impact: The next comparison phase must include parameter-aware Transformer and summary-memory baselines in the same benchmark and reporting path.
 - Follow-up: Add conventional local/full Transformer comparators, a direct summary-memory baseline, and expose parameter counts in the primary suite outputs.
+
+- Date: 2026-04-11
+- Observation: The first parameter-scaling sweeps used adjacent tiers that were too far apart, which made the scaling story harder to interpret and mixed architectural effects with budget jumps.
+- Impact: The main scaling suite was reset to a tighter three-tier ladder: original `~200k` models as `small`, a new `~400k-480k` intermediate tier as `medium`, and the former `~1.2M` tier as `large`.
+- Follow-up: Use only the corrected compact long-budget suite for main scaling claims and treat the retired wide-gap scaling results as superseded.
 
 - Date: 2026-04-10
 - Observation: The existing SRD prototype already has block-wise refresh behavior, but its public config surface is still framed around the older segment terminology.
