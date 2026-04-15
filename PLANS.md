@@ -45,6 +45,260 @@ Phase 7: ablations and paper-facing outputs
 
 ## Work Breakdown
 
+### Active extension — Experiment Set A scaffolding
+
+Goal
+
+- Define the first paper-facing controlled synthetic suite that cleanly separates compressible long-range dependence from non-compressible exact-detail dependence.
+- Lock down a reusable repository structure, config surface, run matrix, and artifact schema before implementing the larger benchmark code path.
+
+Files likely to change
+
+- `PLANS.md`
+- `docs/experiments.md`
+- `docs/experiment_set_a.md`
+- `configs/experiment/set_a/*`
+- `configs/model/set_a/*`
+- `configs/train/set_a/*`
+- `outputs/README.md`
+
+Risks
+
+- The benchmark plan drifts away from the architectural invariants and quietly rewards direct token-memory access.
+- The matrix becomes too large to debug cheaply before the first pilot run.
+- Config surfaces fork from the existing `SRDConfig` / benchmark config path and create duplicate experiment logic.
+
+Validation
+
+- The suite definition keeps the local backbone aligned across all five target model families.
+- Each task has deterministic generation, explicit difficulty knobs, and task-specific metrics.
+- The full matrix and a reduced pilot matrix are both written down concretely.
+- Artifact schemas are explicit enough for `Table 1`, `Table 2`, `Figure 1`, and `Figure 2` generation.
+
+Exit criteria
+
+- The repository contains an implementation-ready Experiment Set A spec and config scaffolding.
+- Later implementation work can add code under the documented paths without revisiting experiment design.
+
+### Active optimization — SRD overhead reduction
+
+Goal
+
+- Reduce prototype overhead in the SRD refresh path before continuing long synthetic sweeps.
+- Keep the architecture unchanged while removing avoidable Python-loop and repeated-computation costs.
+
+Decision
+
+- Pause experiment execution after the first partial pilot/ablation results.
+- Optimize the current implementation first, then resume comparisons on the same benchmark suite.
+
+Concrete focus
+
+- batch pre-refresh local-block execution across blocks instead of re-running the pre stack inside the block loop
+- precompute next-block sufficiency targets instead of embedding the next block repeatedly in the loop
+- replace repeated SRD list accumulation with fixed-shape output buffers and indexed writes
+- use SDPA for refresh-bank and token-bank attention instead of explicit score/softmax/matmul steps
+- reduce detail-path reallocation by keeping projected detail states in fixed buffers
+- add a cheaper long-bank write fast path for the common one-refresh-at-a-time case
+- split the old `delayed_kv` synthetic task into `easy_kv` and `binding_kv` so binding failures can be isolated from simple sparse retrieval
+- preserve refresh-only routing and the explicit refresh bottleneck
+- add a first decode-cache path so completed SRD blocks are cached and only the currently open block is recomputed during decode profiling
+- add a true KV-cache path for `transformer_full` so dense-baseline decode comparisons are not penalized by prefix re-execution
+- remove avoidable clone/copy overhead in decode state handling
+- reduce benchmark-runner profiling overhead from per-step model snapshots and repeated CPU synchronization
+
+Current optimization bundle
+
+- keep only the baseline detail model as the active SRD variant
+- restore and keep the real `transformer_full` KV-cache path active
+- remove unnecessary decode-state clones in SRD and dense baselines
+- lower benchmark bookkeeping overhead before rerunning the clean main suite
+- add incremental `LocalBlock` caches so SRD decode stops recomputing the open-block pre stack from scratch
+- cache the full SRD open-block `pre_blocks` path during decode and, for the base refresh model, cache the open-block `post_blocks` path as well
+
+Validation
+
+- targeted model tests still pass
+- one short benchmark smoke run still completes and returns metrics
+- output shapes and refresh routing behavior remain unchanged
+- incremental decode logits match full-forward logits at divisible-prefix and block-completion checkpoints
+- `transformer_full` incremental decode reuses layer KV caches and matches full-forward logits
+
+### Active redesign — metric-credible Set A
+
+Goal
+
+- Replace the previous underpowered pilot recipe with a staged diagnostic suite that produces interpretable metrics.
+- Separate routing success from exact binding failure before returning to copy-style tasks.
+
+Decision
+
+- Discard all previous `outputs/set_a/*` artifacts.
+- Treat earlier tiny and ultracompact results as invalid for reporting because they mixed overwrite bugs, undertrained settings, and ceiling/floor tasks.
+
+Concrete focus
+
+- stage 0: calibration on tasks that should reliably learn (`easy_kv`, `needle_retrieval`)
+- stage 1: binding diagnosis on paired tasks (`easy_kv`, `binding_kv`)
+- stage 2: routing-plus-reasoning diagnosis (`needle_retrieval`, `multi_hop_segment_reasoning`)
+- defer `delayed_copy` and `mixed_dependency` until detail-path fidelity improves
+- add binding-specific metrics that distinguish exact success from wrong-catalog binding
+
+Validation
+
+- new suite configs exist for calibration, binding, and reasoning phases
+- `binding_kv` emits prefix/suffix/catalog error metrics
+- per-run JSON filenames are unique by run name
+
+### Active redesign — stronger refresh without large efficiency regression
+
+Goal
+
+- Improve SRD quality on binding- and reasoning-heavy tasks without giving up the refresh bottleneck or destroying the current memory profile.
+
+Decision
+
+- prioritize architectural changes that preserve bounded bank size and small refresh counts
+- avoid changes that simply widen the global path by brute force
+
+Concrete focus
+
+- role-structured refresh slots instead of one undifferentiated pooled summary
+- binding-aware sufficiency auxiliary targets instead of summary-only future prediction
+- importance-aware bank writes and merges instead of uniform average compression
+
+Validation
+
+- each change is implemented behind a config flag and can be ablated cleanly
+- memory and throughput are re-measured after each change
+- Stage 1 binding diagnostics improve before copy-style tasks are revisited
+
+Decision update
+
+- the first `importance-aware bank` variant underperformed the simpler `typed_slots + binding_aux` baseline on the 500-step compact diagnostic run
+- remove `importance_bank` from active benchmark suites and exposed model-family configs for now
+- keep the lower-level bank write/merge code path in source as dormant implementation material, but stop treating it as a current candidate
+- narrow the next main comparison to the tasks SRD currently appears capable of solving: `easy_kv`, `needle_retrieval`, and `multi_hop_segment_reasoning`
+- keep the active SRD comparison centered on `srd_refresh_sufficiency_detail` versus dense Transformer baselines
+- use `1024` and `2048` contexts for the next long-context comparison
+- add a follow-up comparison pass for `srd_refresh_sufficiency_detail` and a parameter-matched `~15M transformer_full` under the same `1024/2048` task set so the long-context table includes both the stronger SRD variant and a size-matched dense baseline
+
+### Active diagnostic — Delayed KV only
+
+Goal
+
+- Run a narrow KV-only diagnostic that separates compressible retrieval from binding failure without mixing in unrelated tasks.
+
+Decision
+
+- restrict the next diagnostic suite to delayed-KV variants only
+- use two task variants:
+  - `binding_lite_kv` for the original compressible delayed-KV regime
+  - `binding_heavy_kv` for the harder exact-binding regime
+- compare `transformer_full` and `srd_refresh_sufficiency_detail`
+- use short contexts `32`, `64`, `128`, `256` for fast iteration
+- report both:
+  - `retrieval_hit`
+  - `binding_accuracy`
+
+Metric convention
+
+- `binding_accuracy` is exact gold value-span match
+- `retrieval_hit` is an operationalized memory-hit metric: the predicted value span belongs to the in-context candidate-value catalog, even if bound to the wrong key
+
+### Active redesign — general relation-preserving refresh
+
+Goal
+
+- improve binding preservation without introducing task-specific supervision
+
+Decision
+
+- avoid KV-specific candidate classification or task-name-conditioned loss branches for the next refresh improvement
+- add a general `relation` refresh slot and a self-supervised relation auxiliary loss instead
+
+Concrete focus
+
+- typed refresh slots become `summary/entity/relation`
+- relation slot is initialized from a generic pair-composition signal inside the current block
+- relation auxiliary loss matches the refreshed relation slot against a detached relation target built from within-block token interactions
+
+Decision update
+
+- drop `srd_refresh_typed_slots_binding_aux` and `srd_refresh_typed_slots_relation_aux` from the active code path
+- keep only `srd_refresh_sufficiency_detail` as the active SRD variant for the next round of experiments
+- treat previous `aux` and `relation_aux` results as archived diagnostic evidence only
+
+### Active redesign — detail-first structural fixes
+
+Goal
+
+- strengthen `srd_refresh_sufficiency_detail` on binding-heavy and long-context reasoning tasks without widening SRD into token-level global access
+
+Decision
+
+- stop adding new structural branches for this paper cycle
+- remove exploratory `typed_carry_commit` and `carry_modulation` paths from the active code path
+- focus the next work on implementation optimization and clean `detail` benchmarking
+
+Concrete focus
+
+- simplify the active SRD path back to `srd_refresh_sufficiency_detail`
+- remove inactive architectural branches that complicate maintenance and comparisons
+- optimize decode/train overhead in the surviving detail implementation
+- rerun the clean main experiment suite only after the optimization pass
+
+Validation
+
+- `binding_lite_kv` stays strong
+- `binding_heavy_kv` shows improved `retrieval_hit`, lower `off_catalog_rate`, and at least some recovery in `binding_accuracy`
+- `needle_retrieval` does not regress materially
+- memory stays bounded and decode throughput does not collapse relative to the current detail baseline
+
+Stop conditions
+
+- if typed carry commit hurts `binding_lite_kv` without improving `binding_heavy_kv`, revert it
+
+Execution update
+
+- current implementation work focuses on low-risk overhead removal in `srd_refresh_sufficiency_detail` before rerunning the `detail vs transformer_full` comparison
+- immediate code targets:
+  - remove per-block `clone()` on detail-history slices in training/eval forward
+  - replace repeated `torch.cat()` growth in detail decode caches with indexed writes into reusable buffers
+  - replace repeated `torch.cat()` growth for open-block pre hidden states with fixed-capacity block buffers plus running sums
+  - preserve exact logits for existing forward/prefill/decode tests
+- after the optimization patch:
+  - rerun targeted model tests
+  - rerun a focused `refresh_with_detail` vs `transformer_full` benchmark comparison
+
+### Active scale-up — 150M detail-only run
+
+Goal
+
+- train only the `srd_refresh_sufficiency_detail` family at the repository's `~150M` Set A scale and measure whether scaling helps the active detail path before committing to larger comparison matrices
+
+Decision
+
+- use the existing Set A `base` shared backbone as the first 150M-scale backbone
+- keep the active routing design unchanged: `refresh_with_detail` only, no new architectural branches
+- run a detail-only training and eval sequence first, then decide whether a size-matched dense rerun is worth the cost
+
+Concrete focus
+
+- add a dedicated `~150M detail` model config that resolves to the Set A base backbone plus the active detail path
+- add a dedicated train preset with a conservative token budget and accumulation defaults
+- add a focused eval config that runs only `refresh_with_detail` on the current three-task synthetic comparison shell
+- verify the resolved parameter count and record it in outputs
+
+Validation
+
+- resolved model parameter count lands near the intended `150M` scale and is reported in artifacts
+- smoke validation runs without OOM at the configured micro-batch size
+- targeted detail-model tests still pass after config additions
+- the focused eval emits per-run JSON plus aggregate CSV/markdown artifacts
+- if carry modulation improves reasoning but regresses sparse retrieval sharply, park it behind a config flag
+- if structure-preserving compression costs too much decode throughput for negligible quality gain, keep the current bank path as default
+
 ### Phase 1 — Repo scaffolding
 
 Goal

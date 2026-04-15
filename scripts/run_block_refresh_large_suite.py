@@ -148,6 +148,16 @@ def run_suite(experiment: dict, output_dir: str | Path) -> list[dict]:
     all_specs = _main_runs(experiment) + _sweep_runs(experiment)
     results = []
     for spec in all_specs:
+        run_name = (
+            f"{spec['task_label']}__{spec['variant']}__seed{spec['seed']}"
+            if spec.get("analysis_group") == "main"
+            else f"{spec['task_label']}__{spec['variant']}__{spec.get('sweep_name', 'sweep')}__{spec['seed']}"
+        )
+        print(
+            f"[large-suite] start task={spec['task_label']} variant={spec['variant']} "
+            f"seed={spec['seed']} group={spec['analysis_group']}",
+            flush=True,
+        )
         benchmark_config = SyntheticBenchmarkConfig(
             family=spec["family"],
             seed=spec["seed"],
@@ -186,10 +196,16 @@ def run_suite(experiment: dict, output_dir: str | Path) -> list[dict]:
             lm_loss_weight=spec["runner"].get("lm_loss_weight", 0.25),
             grad_clip_norm=spec["runner"].get("grad_clip_norm", 1.0),
             warmup_fraction=spec["runner"].get("warmup_fraction", 0.1),
+            log_prefix=f"[{run_name}]",
         )
         result = _prepare_run_result(result, spec)
         write_run_json(output_dir, result)
         results.append(result)
+        print(
+            f"[large-suite] finished task={spec['task_label']} variant={spec['variant']} "
+            f"seed={spec['seed']} metric={result['metric_value']:.4f}",
+            flush=True,
+        )
 
     write_aggregate_csv(output_dir, results)
     write_markdown_summary(output_dir, results)
