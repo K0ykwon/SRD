@@ -1,0 +1,28 @@
+{
+  "experiment_set": "set_a",
+  "description": "Stage 1 binding diagnostic suite that separates routing success from exact key-value binding failure.",
+  "model_families": [
+    "transformer_full",
+    "srd_refresh_sufficiency_detail"
+  ],
+  "model_sizes": [
+    "compact"
+  ],
+  "context_lengths": [
+    256,
+    512,
+    1024,
+    2048
+  ],
+  "tasks": [
+    "easy_kv",
+    "binding_kv"
+  ],
+  "seeds": [
+    11,
+    17,
+    23
+  ],
+  "ablations": [],
+  "expected_run_count": 48
+}

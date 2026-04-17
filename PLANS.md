@@ -259,6 +259,125 @@ Stop conditions
 
 - if typed carry commit hurts `binding_lite_kv` without improving `binding_heavy_kv`, revert it
 
+### Active implementation — adaptive slot SRD
+
+Goal
+
+- add an `adaptive_slot_srd` variant that keeps fixed tensor shapes while learning the logical refresh capacity per segment
+- preserve the existing SRD routing rule: only refresh-derived states may access long-range memory
+
+Decision
+
+- extend the existing block-refresh implementation rather than introducing a separate training stack
+- keep physical slot count fixed with `refresh_slots_max`, and learn slot usage through differentiable gating
+- default to soft sigmoid gating; keep hard gating optional and off by default
+- store refresh memory as dense tensors with segment-granularity truncation support
+
+Concrete focus
+
+- refactor refresh-slot construction into a reusable learned-query pooling path over segment states
+- add per-slot gate prediction plus budget and entropy regularization
+- append gated refresh slots into the long-memory bank without Python-side per-slot structures
+- add a compact memory-summary read path that runs once per segment and conditions later local processing
+- surface adaptive-slot metrics in tiny training and benchmark summaries
+- add a forward/backward smoke test for the new variant
+
+Validation
+
+- existing SRD and baseline model tests continue to pass unchanged
+- the new adaptive-slot model preserves fixed-shape refresh tensors and refresh-only bank access
+- a dummy segmented batch runs forward and backward with non-zero gradients through gates and sufficiency head
+- training and evaluation summaries report gate-usage and memory-usage diagnostics
+
+### Active optimization — adaptive slot memory and throughput
+
+Goal
+
+- reduce adaptive-slot SRD memory traffic and per-step overhead enough that its efficiency profile stays favorable against dense Transformer baselines
+- keep the refresh-only routing invariant intact
+
+Decision
+
+- optimize the existing `adaptive_slot_srd` path in place instead of redesigning the model family
+- prioritize fewer large temporary tensors, less repeated bank summarization work, and less Python-side segment bookkeeping
+
+Concrete focus
+
+- avoid redundant memory-summary reads when the carry state is unchanged within a block phase
+- reduce dense bank append/copy overhead where recent-segment truncation is active
+- keep slot pooling and gating batched, contiguous, and free of avoidable intermediate clones
+- add a small benchmark-facing efficiency sanity check against `transformer_full`
+
+Validation
+
+- adaptive-slot forward/backward tests still pass
+- tiny benchmark smoke run still completes
+- measured decode or train throughput stays above the dense Transformer comparator on the same smoke setup
+
+### Active packaging — reproducible synthetic benchmark bundle
+
+Goal
+
+- expose one explicit reproduction path for the required synthetic benchmarks:
+  - Delayed KV
+  - Needle
+  - Delayed Copy
+- expose one explicit sufficiency ablation path with a lambda sweep
+- expose one explicit audit path that shows how task scoring maps into aggregate reporting
+
+Decision
+
+- reuse the existing large-suite runner and artifact writers instead of creating a parallel experiment stack
+- keep shell wrappers thin and place the actual audit logic in `src/srd/eval`
+
+Concrete focus
+
+- add a dedicated reproduction experiment config covering the three required synthetic tasks
+- add a dedicated lambda sweep over `sufficiency_loss_weight`
+- add a score/aggregate audit module that sanity-checks task scoring and grouped aggregation with deterministic inputs
+- add a short reproduction note describing the exact commands and expected output directories
+
+Validation
+
+- the reproduction bundle config is runnable through the existing suite driver
+- the audit module exits cleanly and writes a human-readable summary
+- tests cover the audit path and grouped aggregate expectations
+
+### Active scaling — multi-million long-context reproduction
+
+Goal
+
+- move the required synthetic reproduction path out of the tiny regime and into the repository's paper-facing Set A scale bands
+- make the default public reproduction recipe cover both low-million and tens-of-millions models at materially longer contexts
+
+Decision
+
+- reuse the Set A suite runner instead of adding another large-experiment code path
+- target the existing `compact` and `small` backbones as the primary `~15M` and `~50M` classes
+- keep the required task set unchanged: `delayed_kv`, `needle_retrieval`, and `delayed_copy`
+
+Concrete focus
+
+- add a dedicated long-context required-reproduction suite over `1024`, `2048`, and `4096` tokens
+- keep the main comparison centered on `transformer_full`, `srd_refresh`, `srd_refresh_sufficiency`, and `srd_refresh_sufficiency_detail`
+- keep the sufficiency lambda sweep explicit as a Set A ablation
+- make the `compact` backbone valid at 4k context so the same suite can span low-million and tens-of-millions scales
+- add a larger train preset and thin shell wrapper for the enlarged bundle
+- document run counts and expected compute so this path is clearly distinct from the earlier smoke-scale reproduction bundle
+
+Validation
+
+- the new suite expands to the expected main and ablation run counts
+- the 4k `compact` config builds successfully through the existing Set A model-config path
+- the new script and docs point to one concrete runnable command and output directory
+
+Execution update
+
+- current workstation exposes a `16GB` RTX 5060 Ti and a `12GB` RTX 3060
+- the default long-context public runner should therefore target the `16GB` card conservatively with `micro_batch_size=1`
+- add a separate `small`-only `8k` suite instead of overloading the mixed `1k/2k/4k` suite further
+- validate the new path with a real `MAX_RUNS` smoke execution before treating it as the default reproduction entry point
+
 Execution update
 
 - current implementation work focuses on low-risk overhead removal in `srd_refresh_sufficiency_detail` before rerunning the `detail vs transformer_full` comparison

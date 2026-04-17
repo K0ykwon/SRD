@@ -1,0 +1,26 @@
+{
+  "experiment_set": "set_a",
+  "description": "Compact pilot matrix focused on detail, sufficiency, and transformer_full at short contexts.",
+  "model_families": [
+    "srd_refresh_sufficiency_detail",
+    "srd_refresh_sufficiency",
+    "transformer_full"
+  ],
+  "model_sizes": [
+    "compact"
+  ],
+  "context_lengths": [
+    512,
+    1024
+  ],
+  "tasks": [
+    "delayed_kv",
+    "delayed_copy",
+    "mixed_dependency"
+  ],
+  "seeds": [
+    11
+  ],
+  "ablations": [],
+  "expected_run_count": 18
+}

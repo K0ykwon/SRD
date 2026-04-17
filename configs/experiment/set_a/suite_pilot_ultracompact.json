@@ -1,0 +1,25 @@
+{
+  "experiment_set": "set_a",
+  "description": "Ultra-compact pilot matrix focused on detail and transformer_full at very short contexts.",
+  "model_families": [
+    "srd_refresh_sufficiency_detail",
+    "transformer_full"
+  ],
+  "model_sizes": [
+    "compact"
+  ],
+  "context_lengths": [
+    128,
+    256
+  ],
+  "tasks": [
+    "delayed_kv",
+    "delayed_copy",
+    "mixed_dependency"
+  ],
+  "seeds": [
+    11
+  ],
+  "ablations": [],
+  "expected_run_count": 12
+}

@@ -48,6 +48,7 @@ Current runnable presets:
 - `block_refresh_tiny`: block-refresh model with refresh enabled and no sufficiency loss
 - `block_refresh_suf_tiny`: block-refresh model with refresh enabled and sufficiency loss
 - `block_refresh_detail_tiny`: block-refresh model with bounded detail retrieval and sufficiency enabled
+- `adaptive_slot_srd_tiny`: fixed-shape adaptive-capacity SRD with gated refresh slots
 - `local_tiny`: local-only baseline with no refresh path
 - `transformer_local_matched`: parameter-aware local-window Transformer baseline
 - `transformer_full_matched`: parameter-aware full-attention Transformer baseline
@@ -62,6 +63,7 @@ Current commands:
 - `bash scripts/train_tiny_block_refresh_local.sh`
 - `bash scripts/train_tiny_block_refresh_no_suf.sh`
 - `bash scripts/train_tiny_block_refresh_with_suf.sh`
+- `PYTHONPATH=src python3 -m srd.training.train --preset adaptive_slot_srd_tiny`
 - `bash scripts/run_block_refresh_detail_focused.sh`
 - `bash scripts/run_block_refresh_paper_suite.sh`
 - `bash scripts/train_tiny_local_only.sh`
@@ -194,3 +196,37 @@ The markdown notes include:
 4. Add a summary-memory-style baseline for the first stronger comparison.
 5. Run the strong external-baseline suite with parameter-aware reporting.
 6. Scale to a first real long-context benchmark.
+
+## Experiment Set A
+
+The next paper-facing synthetic suite is documented in `docs/experiment_set_a.md`.
+
+The revised staged recipe for interpretable metrics is documented in `docs/experiment_set_a_redesign.md`.
+
+It extends the current minimal benchmark path with:
+
+- five tasks instead of three
+- an explicit compressible vs non-compressible split
+- a fixed five-family comparison set
+- a two-scale, three-context, three-seed matrix
+- lightweight sufficiency/detail/refresh-interval ablations
+- seed-aggregated artifact schemas meant for table and figure generation
+
+The required public reproduction path now has two tiers:
+
+- a small smoke-scale bundle in `configs/experiment/reproduction_required.json`
+- a long-context Set A bundle in `configs/experiment/set_a/suite_reproduction_required_longctx.json`
+
+The long-context bundle is the intended paper-facing default for the required synthetic tasks:
+
+- scales: `compact (~15M)` and `small (~50M)`
+- contexts: `1024`, `2048`, `4096`
+- tasks: `delayed_kv`, `needle_retrieval`, `delayed_copy`
+- main families: `transformer_full`, `srd_refresh`, `srd_refresh_sufficiency`, `srd_refresh_sufficiency_detail`
+- ablation: `sufficiency_weight`
+
+There is also a heavier follow-up suite focused on the tens-of-millions regime only:
+
+- `configs/experiment/set_a/suite_reproduction_required_small_8k.json`
+- scale: `small (~50M)`
+- context: `8192`

@@ -40,6 +40,9 @@ class TransformerXLStyleMemoryModel(nn.Module):
         self.final_norm = nn.LayerNorm(config.d_model)
         self.lm_head = nn.Linear(config.d_model, config.vocab_size, bias=False)
 
+    def _empty_state(self, batch_size: int, device: torch.device) -> Tensor:
+        return torch.empty(batch_size, 0, self.config.d_model, device=device)
+
     def _block_ranges(self, seq_len: int) -> List[tuple[int, int]]:
         block_size = self.config.effective_block_size()
         return [
@@ -75,12 +78,12 @@ class TransformerXLStyleMemoryModel(nn.Module):
 
         hidden_states = torch.cat(output_blocks, dim=1)
         logits = self.lm_head(self.final_norm(hidden_states))
-        empty = hidden_states[:, :0, :]
+        empty = self._empty_state(batch_size, input_ids.device)
         return {
             "logits": logits,
-            "hidden_states": hidden_states,
+            "hidden_states": empty,
             "refresh_states": empty,
-            "bank_states": memory_states,
+            "bank_states": memory_states.detach(),
             "predicted_summary": empty,
             "target_summary": empty,
             "debug": {
@@ -127,6 +130,9 @@ class PerceiverLatentModel(nn.Module):
         self.final_norm = nn.LayerNorm(config.d_model)
         self.lm_head = nn.Linear(config.d_model, config.vocab_size, bias=False)
 
+    def _empty_state(self, batch_size: int, device: torch.device) -> Tensor:
+        return torch.empty(batch_size, 0, self.config.d_model, device=device)
+
     def _block_ranges(self, seq_len: int) -> List[tuple[int, int]]:
         block_size = self.config.effective_block_size()
         return [
@@ -156,12 +162,12 @@ class PerceiverLatentModel(nn.Module):
 
         hidden_states = torch.cat(output_blocks, dim=1)
         logits = self.lm_head(self.final_norm(hidden_states))
-        empty = hidden_states[:, :0, :]
+        empty = self._empty_state(batch_size, input_ids.device)
         return {
             "logits": logits,
-            "hidden_states": hidden_states,
+            "hidden_states": empty,
             "refresh_states": empty,
-            "bank_states": latent_states,
+            "bank_states": latent_states.detach(),
             "predicted_summary": empty,
             "target_summary": empty,
             "debug": {

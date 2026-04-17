@@ -1,0 +1,22 @@
+{
+  "optimizer": "adamw",
+  "lr": 0.0003,
+  "weight_decay": 0.1,
+  "betas": [
+    0.9,
+    0.95
+  ],
+  "grad_clip_norm": 1.0,
+  "warmup_steps": 1,
+  "lr_schedule": "cosine",
+  "micro_batch_size": 1,
+  "gradient_accumulation_steps": 1,
+  "batch_size_tokens": 2048,
+  "max_steps": 4,
+  "eval_every": 2,
+  "save_every": 2,
+  "log_every": 1,
+  "precision": "fp32",
+  "compile_model": false,
+  "deterministic_algorithms": false
+}

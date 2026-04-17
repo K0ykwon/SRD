@@ -1,0 +1,8 @@
+{
+  "model_family": "transformer_local",
+  "model_type": "transformer_local",
+  "refresh_enabled": false,
+  "use_refresh": false,
+  "detail_enabled": false,
+  "sufficiency_loss_weight": 0.0
+}

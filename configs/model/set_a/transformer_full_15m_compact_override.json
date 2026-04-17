@@ -1,0 +1,9 @@
+{
+  "d_model": 448,
+  "num_layers": 6,
+  "num_heads": 8,
+  "max_seq_len": 4096,
+  "local_window": 64,
+  "block_size": 64,
+  "segment_length": 64
+}

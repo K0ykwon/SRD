@@ -6,6 +6,7 @@ from torch import nn
 
 from srd.config import SRDConfig
 from srd.modeling.advanced_baselines import PerceiverLatentModel, TransformerXLStyleMemoryModel
+from srd.modeling.adaptive_slot_model import AdaptiveSlotSRDModel
 from srd.modeling.baseline_models import SummaryMemoryModel, TransformerFullModel, TransformerLocalModel
 from srd.modeling.block_refresh_detail_model import BlockRefreshDetailModel
 from srd.modeling.block_refresh_model import BlockRefreshModel
@@ -20,6 +21,8 @@ def build_model(config: SRDConfig) -> nn.Module:
         return BlockRefreshModel(config)
     if config.model_type == "srd_block_refresh_detail":
         return BlockRefreshDetailModel(config)
+    if config.model_type == "adaptive_slot_srd":
+        return AdaptiveSlotSRDModel(config)
     if config.model_type == "transformer_local":
         return TransformerLocalModel(config)
     if config.model_type == "transformer_full":

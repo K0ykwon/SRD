@@ -15,6 +15,13 @@ An optional extension, `srd_block_refresh_detail`, adds a second but much smalle
 - future blocks may retrieve only top-k detail slots globally
 - refresh remains the default summary path and detail remains auxiliary
 
+An experimental `adaptive_slot_srd` variant keeps the same scheduled refresh routing but changes how refresh capacity is represented:
+
+- each block emits a fixed maximum number of refresh slots
+- learned sigmoid gates decide how much of each slot is used
+- the physical tensor shape stays fixed even when the learned logical capacity changes
+- future blocks read only a compact bank summary, not token-level global context
+
 ## Block-Level View
 
 At a high level, the model repeats the following pattern:
@@ -87,6 +94,12 @@ B[s+1] = WriteBank(B[s], Mean_k(r'[s, k]))
 
 The bank is shared across segments, bounded in size, and compressed by merging the oldest pair when full.
 
+An optional refinement keeps the bank bounded while avoiding an immediate collapse to one pooled carry:
+
+- a refresh step may commit more than one typed bank entry from the same refresh event
+- for example, one summary-like entry and one entity/detail-like entry
+- ordinary tokens still never read those bank entries directly
+
 ### Future-Segment Injection
 
 Refresh outputs are not written back as ordinary tokens. Instead, the aggregated refresh result is carried into later segment processing:
@@ -96,6 +109,12 @@ c[s+1] = Mean_k(r'[s, k])
 ```
 
 For the current prototype, later segments receive that carried context through additive conditioning before the upper local stack, or before both local stacks in the all-layer variant.
+
+The active refinement path also allows a query-compatible modulation mode:
+
+- the carried context is still computed only from refresh and optional bounded detail
+- ordinary tokens still do not read the bank directly
+- but the carried signal may be gated per token by the current hidden states instead of being broadcast additively with one fixed scale
 
 For the paper-facing block variant, the same rule is phrased blockwise:
 
@@ -157,6 +176,24 @@ Fusion:
 - Future segment processing may use refresh outputs through carried segment-level context, not through token-level bank reads.
 - Evaluation should separately measure quality, latency, throughput, and memory.
 
+## Decode API
+
+For decode profiling and future inference work, models may expose an incremental interface:
+
+- `prefill(input_ids) -> decode_state`
+- `decode_step(next_input_ids, decode_state) -> decode_state`
+
+For SRD block-refresh variants, the intended behavior is:
+
+- completed blocks are cached
+- bank state is updated only at block boundaries
+- the currently open block may reuse local-block KV caches instead of rerunning its full local stack from scratch
+- in the base refresh model, both the open-block lower and upper local stacks may be cached while the carried refresh context stays fixed
+- in the detail model, the open-block lower local stack may be cached even if the upper stack is recomputed because detail fusion depends on the evolving open-block summary
+- regular tokens still never read the long-memory bank directly during decode
+
+This interface exists to remove avoidable prefix re-execution in decode benchmarks without changing the routing constraint.
+
 ## Comparison Baselines
 
 The repo now carries explicit non-SRD comparison models so evaluation can test whether SRD helps for the right reason.
@@ -187,3 +224,5 @@ Only SRD preserves all three core claims together:
 - bank read/write rules may evolve from pooled summaries to more structured memory slots
 - local blocks may later swap between convolutional, recurrent, or attention-based variants
 - sufficiency targets may later move from embedding summaries to stronger teacher or hidden-state targets
+
+The current prioritized improvement plan for stronger refresh structure is tracked in `docs/refresh_improvement_plan.md`.

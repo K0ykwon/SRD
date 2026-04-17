@@ -86,3 +86,21 @@ def test_detail_variant_sufficiency_loss_backpropagates() -> None:
 
     assert losses["sufficiency_loss"].item() >= 0.0
     assert model.sufficiency_head.weight.grad is not None
+
+
+def test_detail_prefill_decode_matches_padded_forward_logits() -> None:
+    config = SRDConfig.preset("block_refresh_detail_tiny")
+    model = BlockRefreshDetailModel(config)
+    model.eval()
+    full_prefix = torch.randint(0, config.vocab_size, (1, config.block_size))
+    full_outputs = model(full_prefix)
+    full_state = model.prefill(full_prefix)
+    assert torch.allclose(full_state["next_logits"], full_outputs["logits"][:, -1, :], atol=1e-5, rtol=1e-5)
+
+    partial_prefix = torch.randint(0, config.vocab_size, (1, config.block_size - 1))
+    partial_state = model.prefill(partial_prefix)
+    next_token = torch.randint(0, config.vocab_size, (1, 1))
+    stepped = model.decode_step(next_token, partial_state)
+    completed = torch.cat([partial_prefix, next_token], dim=1)
+    completed_outputs = model(completed)
+    assert torch.allclose(stepped["next_logits"], completed_outputs["logits"][:, -1, :], atol=1e-5, rtol=1e-5)

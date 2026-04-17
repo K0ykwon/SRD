@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Dict, List
+from typing import Any, Dict, List
 
 import torch
 from torch import Tensor, nn
@@ -36,6 +36,9 @@ class TransformerLocalModel(nn.Module):
         self.final_norm = nn.LayerNorm(config.d_model)
         self.lm_head = nn.Linear(config.d_model, config.vocab_size, bias=False)
 
+    def _empty_state(self, batch_size: int, device: torch.device) -> Tensor:
+        return torch.empty(batch_size, 0, self.config.d_model, device=device)
+
     def forward(self, input_ids: Tensor, initial_bank_states: Tensor | None = None) -> Dict[str, Tensor]:
         """Runs a standard local-only decoder baseline."""
         hidden_states = self.embedding(input_ids)
@@ -43,10 +46,10 @@ class TransformerLocalModel(nn.Module):
             hidden_states = block(hidden_states)
 
         logits = self.lm_head(self.final_norm(hidden_states))
-        empty = hidden_states[:, :0, :]
+        empty = self._empty_state(input_ids.size(0), input_ids.device)
         return {
             "logits": logits,
-            "hidden_states": hidden_states,
+            "hidden_states": empty,
             "refresh_states": empty,
             "bank_states": empty,
             "predicted_summary": empty,
@@ -58,6 +61,23 @@ class TransformerLocalModel(nn.Module):
                 "token_bank_access_count": 0,
                 "refresh_bank_access_count": 0,
             },
+        }
+
+    def prefill(self, input_ids: Tensor) -> dict[str, Any]:
+        outputs = self(input_ids)
+        return {
+            "input_ids": input_ids,
+            "next_logits": outputs["logits"][:, -1, :].detach(),
+        }
+
+    def decode_step(self, next_input_ids: Tensor, state: dict[str, Any]) -> dict[str, Any]:
+        if next_input_ids.dim() == 1:
+            next_input_ids = next_input_ids.unsqueeze(1)
+        input_ids = torch.cat([state["input_ids"], next_input_ids], dim=1)
+        outputs = self(input_ids)
+        return {
+            "input_ids": input_ids,
+            "next_logits": outputs["logits"][:, -1, :],
         }
 
 
@@ -82,6 +102,9 @@ class TransformerFullModel(nn.Module):
         self.final_norm = nn.LayerNorm(config.d_model)
         self.lm_head = nn.Linear(config.d_model, config.vocab_size, bias=False)
 
+    def _empty_state(self, batch_size: int, device: torch.device) -> Tensor:
+        return torch.empty(batch_size, 0, self.config.d_model, device=device)
+
     def forward(self, input_ids: Tensor, initial_bank_states: Tensor | None = None) -> Dict[str, Tensor]:
         """Runs a standard full causal Transformer baseline."""
         hidden_states = self.embedding(input_ids)
@@ -89,10 +112,10 @@ class TransformerFullModel(nn.Module):
             hidden_states = block(hidden_states)
 
         logits = self.lm_head(self.final_norm(hidden_states))
-        empty = hidden_states[:, :0, :]
+        empty = self._empty_state(input_ids.size(0), input_ids.device)
         return {
             "logits": logits,
-            "hidden_states": hidden_states,
+            "hidden_states": empty,
             "refresh_states": empty,
             "bank_states": empty,
             "predicted_summary": empty,
@@ -104,6 +127,35 @@ class TransformerFullModel(nn.Module):
                 "token_bank_access_count": 0,
                 "refresh_bank_access_count": 0,
             },
+        }
+
+    def prefill(self, input_ids: Tensor) -> dict[str, Any]:
+        hidden_states = self.embedding(input_ids)
+        layer_caches = []
+        for block in self.blocks:
+            hidden_states, cache = block.prefill_cache(hidden_states)
+            layer_caches.append(cache)
+        next_logits = self.lm_head(self.final_norm(hidden_states))[:, -1, :]
+        return {
+            "input_ids": input_ids,
+            "layer_caches": layer_caches,
+            "next_logits": next_logits.detach(),
+        }
+
+    def decode_step(self, next_input_ids: Tensor, state: dict[str, Any]) -> dict[str, Any]:
+        if next_input_ids.dim() == 1:
+            next_input_ids = next_input_ids.unsqueeze(1)
+        input_ids = torch.cat([state["input_ids"], next_input_ids], dim=1)
+        hidden_states = self.embedding(next_input_ids)
+        new_caches = []
+        for block, cache in zip(self.blocks, state["layer_caches"]):
+            hidden_states, updated_cache = block.forward_step(hidden_states, cache)
+            new_caches.append(updated_cache)
+        next_logits = self.lm_head(self.final_norm(hidden_states))[:, -1, :]
+        return {
+            "input_ids": input_ids,
+            "layer_caches": new_caches,
+            "next_logits": next_logits.detach(),
         }
 
 
@@ -135,6 +187,9 @@ class SummaryMemoryModel(nn.Module):
         self.segment_to_summary = nn.Linear(2 * config.d_model, config.d_model)
         self.final_norm = nn.LayerNorm(config.d_model)
         self.lm_head = nn.Linear(config.d_model, config.vocab_size, bias=False)
+
+    def _empty_state(self, batch_size: int, device: torch.device) -> Tensor:
+        return torch.empty(batch_size, 0, self.config.d_model, device=device)
 
     def _segment_ranges(self, seq_len: int) -> List[tuple[int, int]]:
         """Returns segment boundaries used for bank writes and reads."""
@@ -172,12 +227,12 @@ class SummaryMemoryModel(nn.Module):
 
         hidden_states = torch.cat(output_segments, dim=1)
         logits = self.lm_head(self.final_norm(hidden_states))
-        empty = hidden_states[:, :0, :]
+        empty = self._empty_state(batch_size, input_ids.device)
         return {
             "logits": logits,
-            "hidden_states": hidden_states,
+            "hidden_states": empty,
             "refresh_states": empty,
-            "bank_states": bank_states,
+            "bank_states": bank_states.detach(),
             "predicted_summary": empty,
             "target_summary": empty,
             "debug": {

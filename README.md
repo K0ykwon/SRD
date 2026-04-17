@@ -19,6 +19,7 @@ In short formal language: SRD is a decoder with local-only token updates and sch
 
 The first paper-facing implementation in this repo is a block-based SRD variant exposed as `srd_block_refresh`.
 An extension exposed as `srd_block_refresh_detail` keeps the refresh bottleneck intact while adding a tiny bounded detail-retrieval path for non-compressible long-range information.
+An experimental learned-capacity variant exposed as `adaptive_slot_srd` keeps refresh tensors fixed-shape while learning how many refresh slots to use per segment.
 
 ## Why SRD Exists
 
@@ -108,6 +109,7 @@ Run a tiny training smoke test:
 
 ```bash
 PYTHONPATH=src python3 -m srd.training.train --preset block_refresh_suf_tiny
+PYTHONPATH=src python3 -m srd.training.train --preset adaptive_slot_srd_tiny
 ```
 
 Run a tiny evaluation smoke test:
@@ -145,6 +147,11 @@ Current main parameter-scaling suite:
 
 The older wider-gap scaling suites were retired so the reported scaling comparisons focus on this tighter `small / medium / large` progression.
 
+Adaptive-slot note:
+
+- see `docs/adaptive_slot_srd.md` for the fixed-shape learned-capacity refresh design and config surface
+- see `docs/reproduction_required.md` for the required Delayed KV / Needle / Delayed Copy reproduction bundle, the sufficiency lambda sweep, and the score/aggregate audit path
+
 Run individual conventional baselines on a chosen synthetic benchmark config:
 
 ```bash
@@ -157,7 +164,26 @@ Run the synthetic long-context benchmark suite:
 
 ```bash
 bash scripts/run_synthetic_suite.sh
+bash scripts/run_reproduction_required.sh
+bash scripts/run_reproduction_required_longctx.sh
+bash scripts/run_reproduction_required_small_8k.sh
+bash scripts/run_reproduction_audit.sh
 ```
+
+Current long-context required reproduction bundle:
+
+- `configs/experiment/set_a/suite_reproduction_required_longctx.json`
+- scales: `compact (~15M)` and `small (~50M)`
+- contexts: `1024`, `2048`, `4096`
+- tasks: `delayed_kv`, `needle_retrieval`, `delayed_copy`
+- main variants: `transformer_full`, `srd_refresh`, `srd_refresh_sufficiency`, `srd_refresh_sufficiency_detail`
+- sufficiency ablation: `lambda in {0.0, 0.05, 0.1, 0.25, 0.5}`
+
+Additional longer-context follow-up:
+
+- `configs/experiment/set_a/suite_reproduction_required_small_8k.json`
+- scale: `small (~50M)`
+- context: `8192`
 
 Run the SRD ablation sweep:
 

@@ -3,6 +3,7 @@
 import math
 
 import torch
+import torch.nn.functional as F
 from torch import Tensor, nn
 
 
@@ -57,10 +58,14 @@ class TokenMemoryBlock(nn.Module):
         key = reshape_heads(key, bank_len)
         value = reshape_heads(value, bank_len)
 
-        scores = torch.matmul(query, key.transpose(-2, -1)) / math.sqrt(self.head_dim)
-        attention = torch.softmax(scores, dim=-1)
-        attention = self.dropout(attention)
-        attended = torch.matmul(attention, value)
+        attended = F.scaled_dot_product_attention(
+            query,
+            key,
+            value,
+            attn_mask=None,
+            dropout_p=self.dropout.p if self.training else 0.0,
+            is_causal=False,
+        )
         attended = attended.transpose(1, 2).contiguous().view(batch_size, token_len, self.d_model)
 
         hidden_states = residual + self.out_proj(attended)
@@ -69,5 +74,5 @@ class TokenMemoryBlock(nn.Module):
             "bank_used": True,
             "bank_read_slots": token_len,
             "token_bank_access_count": token_len,
-            "attention": attention,
+            "attention": None,
         }

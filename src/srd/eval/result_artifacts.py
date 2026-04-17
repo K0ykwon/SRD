@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import json
+from collections import defaultdict
 from pathlib import Path
 from typing import Iterable
 
@@ -14,8 +15,15 @@ def _ensure_dir(path: str | Path) -> Path:
     return directory
 
 
+def _safe_slug(value: str) -> str:
+    return "".join(char if char.isalnum() or char in {"-", "_"} else "_" for char in value)
+
+
 def _flatten_result(result: dict) -> dict:
+    task_metrics = result.get("task_metrics", {})
     row = {
+        "experiment_set": result.get("experiment_set", ""),
+        "run_name": result.get("run_name", ""),
         "task_label": result.get("task_label", result["benchmark"]["family"]),
         "task_category": result.get("task_category", ""),
         "seed": result["benchmark"].get("seed", ""),
@@ -50,6 +58,23 @@ def _flatten_result(result: dict) -> dict:
         "bank_size": result["model"]["bank_size"],
         "upper_layer_only_refresh": result["model"]["upper_layer_only_refresh"],
     }
+    if result.get("ablation") is not None:
+        row["ablation_name"] = result["ablation"].get("name", "")
+        row["ablation_value"] = result["ablation"].get("value", "")
+        row["ablation_scope_model_family"] = result["ablation"].get("scope_model_family", "")
+    for key, value in task_metrics.items():
+        if isinstance(value, dict):
+            for nested_key, nested_value in value.items():
+                row[f"{key}.{nested_key}"] = nested_value
+        else:
+            row[key] = value
+    if "efficiency" in result:
+        for key, value in result["efficiency"].items():
+            row[f"efficiency.{key}"] = value
+    if "debug" in result:
+        for key, value in result["debug"].items():
+            if not isinstance(value, (dict, list)):
+                row[f"debug.{key}"] = value
     return row
 
 
@@ -57,12 +82,19 @@ def write_run_json(output_dir: str | Path, result: dict) -> Path:
     """Writes one structured benchmark result JSON file."""
     directory = _ensure_dir(output_dir)
     label = result.get("task_label", result["benchmark"]["family"])
-    filename = (
-        f"{label}__{result['variant']}__"
-        f"seg{result['model'].get('block_size', result['model']['segment_length'])}__ref{result['model'].get('refresh_slots', result['model']['refresh_count'])}__"
-        f"bank{result['model']['bank_size']}__ulr{int(result['model']['upper_layer_only_refresh'])}__"
-        f"seed{result['benchmark']['seed']}.json"
-    )
+    run_name = result.get("run_name", "")
+    if run_name:
+        filename = f"{_safe_slug(run_name)}.json"
+    else:
+        model_size = result.get("model_size", "")
+        context_length = result.get("context_length", "")
+        filename = (
+            f"{label}__{result['variant']}__"
+            f"size{model_size or 'na'}__ctx{context_length or 'na'}__"
+            f"seg{result['model'].get('block_size', result['model']['segment_length'])}__ref{result['model'].get('refresh_slots', result['model']['refresh_count'])}__"
+            f"bank{result['model']['bank_size']}__ulr{int(result['model']['upper_layer_only_refresh'])}__"
+            f"seed{result['benchmark']['seed']}.json"
+        )
     path = directory / filename
     with path.open("w", encoding="utf-8") as handle:
         json.dump(result, handle, indent=2, sort_keys=True)
@@ -76,10 +108,64 @@ def write_aggregate_csv(output_dir: str | Path, results: Iterable[dict]) -> Path
     if not rows:
         raise ValueError("Cannot write aggregate CSV with no results")
     path = directory / "aggregate_results.csv"
+    fieldnames = sorted({key for row in rows for key in row.keys()})
     with path.open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=list(rows[0].keys()))
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(rows)
+    return path
+
+
+def write_grouped_csv(output_dir: str | Path, results: Iterable[dict]) -> Path:
+    """Writes mean/std summaries grouped by task/model/context."""
+    directory = _ensure_dir(output_dir)
+    rows = [_flatten_result(result) for result in results]
+    if not rows:
+        raise ValueError("Cannot write grouped CSV with no results")
+
+    groups: dict[tuple, list[dict]] = defaultdict(list)
+    for row in rows:
+        key = (
+            row.get("task_label", ""),
+            row.get("task_category", ""),
+            row.get("variant", ""),
+            row.get("model_size", ""),
+            row.get("context_length", ""),
+        )
+        groups[key].append(row)
+
+    grouped_rows = []
+    metric_keys = {
+        key
+        for row in rows
+        for key, value in row.items()
+        if isinstance(value, (int, float)) and key not in {"seed"}
+    }
+    for key, group_rows in groups.items():
+        grouped = {
+            "task_label": key[0],
+            "task_category": key[1],
+            "variant": key[2],
+            "model_size": key[3],
+            "context_length": key[4],
+            "seed_count": len(group_rows),
+        }
+        for metric_key in sorted(metric_keys):
+            values = [float(row[metric_key]) for row in group_rows if row.get(metric_key, "") != ""]
+            if not values:
+                continue
+            mean = sum(values) / len(values)
+            variance = sum((value - mean) ** 2 for value in values) / len(values)
+            grouped[f"{metric_key}_mean"] = mean
+            grouped[f"{metric_key}_std"] = variance ** 0.5
+        grouped_rows.append(grouped)
+
+    path = directory / "aggregate_grouped.csv"
+    fieldnames = sorted({key for row in grouped_rows for key in row.keys()})
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(grouped_rows)
     return path
 
 

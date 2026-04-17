@@ -1,0 +1,14 @@
+{
+  "size_name": "small",
+  "target_parameter_count": 50000000,
+  "vocab_size": 512,
+  "d_model": 512,
+  "num_layers": 12,
+  "num_heads": 8,
+  "mlp_ratio": 4.0,
+  "dropout_p": 0.0,
+  "local_window": 128,
+  "block_size": 64,
+  "segment_length": 64,
+  "max_seq_len": 8192
+}

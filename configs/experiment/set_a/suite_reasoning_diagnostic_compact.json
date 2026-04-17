@@ -1,0 +1,31 @@
+{
+  "experiment_set": "set_a",
+  "description": "Stage 2 routing and reasoning diagnostic suite after calibration and binding checks.",
+  "model_families": [
+    "transformer_local",
+    "transformer_full",
+    "srd_refresh",
+    "srd_refresh_sufficiency",
+    "srd_refresh_sufficiency_detail"
+  ],
+  "model_sizes": [
+    "compact"
+  ],
+  "context_lengths": [
+    256,
+    512,
+    1024,
+    2048
+  ],
+  "tasks": [
+    "needle_retrieval",
+    "multi_hop_segment_reasoning"
+  ],
+  "seeds": [
+    11,
+    17,
+    23
+  ],
+  "ablations": [],
+  "expected_run_count": 120
+}

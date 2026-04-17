@@ -30,6 +30,25 @@ def test_transformer_full_outputs_expected_shapes() -> None:
     assert outputs["debug"]["bank_read_slots"] == 0
 
 
+def test_transformer_full_prefill_decode_matches_forward_logits() -> None:
+    config = SRDConfig(model_type="transformer_full", vocab_size=32, d_model=16, num_heads=4, num_layers=2)
+    model = TransformerFullModel(config)
+    model.eval()
+    prefix = torch.randint(0, config.vocab_size, (1, 5))
+
+    full_outputs = model(prefix)
+    state = model.prefill(prefix)
+    assert "layer_caches" in state
+    assert len(state["layer_caches"]) == config.num_layers
+    assert torch.allclose(state["next_logits"], full_outputs["logits"][:, -1, :], atol=1e-5, rtol=1e-5)
+
+    next_token = torch.randint(0, config.vocab_size, (1, 1))
+    stepped = model.decode_step(next_token, state)
+    extended = torch.cat([prefix, next_token], dim=1)
+    extended_outputs = model(extended)
+    assert torch.allclose(stepped["next_logits"], extended_outputs["logits"][:, -1, :], atol=1e-5, rtol=1e-5)
+
+
 def test_summary_memory_allows_direct_token_bank_access() -> None:
     config = SRDConfig(
         model_type="summary_memory",

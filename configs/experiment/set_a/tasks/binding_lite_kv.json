@@ -1,0 +1,38 @@
+{
+  "task_name": "binding_lite_kv",
+  "task_category": "compressible_delayed_kv_binding_light",
+  "split_sizes": {
+    "train": 200000,
+    "val": 5000,
+    "test": 5000
+  },
+  "vocab_size": 512,
+  "answer_span_length": 1,
+  "gap_segments": 2,
+  "num_keys": 1,
+  "num_distractor_keys": 0,
+  "distractor_density": 1,
+  "exact_recovery_required": false,
+  "difficulty_levels": {
+    "tiny_32": {
+      "segment_count": 1,
+      "segment_length": 32,
+      "total_length": 32
+    },
+    "tiny_64": {
+      "segment_count": 1,
+      "segment_length": 64,
+      "total_length": 64
+    },
+    "tiny_128": {
+      "segment_count": 2,
+      "segment_length": 64,
+      "total_length": 128
+    },
+    "tiny_256": {
+      "segment_count": 4,
+      "segment_length": 64,
+      "total_length": 256
+    }
+  }
+}

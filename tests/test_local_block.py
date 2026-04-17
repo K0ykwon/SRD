@@ -20,3 +20,17 @@ def test_local_block_mask_blocks_future_and_distant_past() -> None:
 
     assert attention[1, 3].item() == 0.0
     assert attention[3, 0].item() == 0.0
+
+
+def test_local_block_prefill_forward_step_matches_full_forward_last_token() -> None:
+    torch.manual_seed(0)
+    block = LocalBlock(d_model=16, num_heads=4, window_size=2)
+    block.eval()
+    prefix = torch.randn(1, 5, 16)
+    next_token = torch.randn(1, 1, 16)
+
+    full = block(torch.cat([prefix, next_token], dim=1))
+    _, cache = block.prefill_cache(prefix)
+    stepped, _ = block.forward_step(next_token, cache)
+
+    assert torch.allclose(stepped[:, -1, :], full[:, -1, :], atol=1e-5, rtol=1e-5)

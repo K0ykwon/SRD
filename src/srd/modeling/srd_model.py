@@ -59,6 +59,9 @@ class SRDModel(nn.Module):
         self.final_norm = nn.LayerNorm(config.d_model)
         self.lm_head = nn.Linear(config.d_model, config.vocab_size, bias=False)
 
+    def _empty_state(self, batch_size: int, device: torch.device) -> Tensor:
+        return torch.empty(batch_size, 0, self.config.d_model, device=device)
+
     def _segment_ranges(self, seq_len: int) -> List[tuple[int, int]]:
         """Returns the closed-open segment ranges used for scheduled refresh."""
         return [
@@ -130,21 +133,22 @@ class SRDModel(nn.Module):
 
         hidden_states = torch.cat(output_segments, dim=1)
         logits = self.lm_head(self.final_norm(hidden_states))
+        empty = self._empty_state(batch_size, input_ids.device)
         if refresh_segments:
-            refresh_states = torch.cat(refresh_segments, dim=1)
+            refresh_states = torch.cat(refresh_segments, dim=1).detach()
         else:
-            refresh_states = hidden_states[:, :0, :]
+            refresh_states = empty
         if sufficiency_predictions:
             predicted_summary = torch.stack(sufficiency_predictions, dim=1)
             target_summary = torch.stack(sufficiency_targets, dim=1)
         else:
-            predicted_summary = hidden_states[:, :0, :]
-            target_summary = hidden_states[:, :0, :]
+            predicted_summary = empty
+            target_summary = empty
         return {
             "logits": logits,
-            "hidden_states": hidden_states,
+            "hidden_states": empty,
             "refresh_states": refresh_states,
-            "bank_states": bank_states,
+            "bank_states": bank_states.detach(),
             "predicted_summary": predicted_summary,
             "target_summary": target_summary,
             "debug": {

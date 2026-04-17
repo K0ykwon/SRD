@@ -23,6 +23,9 @@ def test_ablation_grid_expands_expected_count() -> None:
 
 def test_result_artifacts_write_json_csv_and_markdown(tmp_path) -> None:
     result = {
+        "run_name": "set_a_small_ctx2048_delayed_kv_transformer_full_seed1",
+        "model_size": "small",
+        "context_length": 2048,
         "variant": "transformer_full",
         "benchmark": {"family": "delayed_kv", "mode": "easy", "seed": 1},
         "model": {
@@ -49,5 +52,6 @@ def test_result_artifacts_write_json_csv_and_markdown(tmp_path) -> None:
     md_path = write_markdown_summary(tmp_path, [result])
 
     assert json.loads(json_path.read_text(encoding="utf-8"))["variant"] == "transformer_full"
+    assert json_path.name == "set_a_small_ctx2048_delayed_kv_transformer_full_seed1.json"
     assert "parameter_count" in csv_path.read_text(encoding="utf-8")
     assert "transformer_full" in md_path.read_text(encoding="utf-8")

@@ -62,17 +62,21 @@ def test_build_model_config_supports_new_variants() -> None:
     )
     xl_config = build_model_config("transformer_xl_style", benchmark_config)
     perceiver_config = build_model_config("perceiver_latent", benchmark_config)
+    adaptive_config = build_model_config("adaptive_slot_srd", benchmark_config)
 
     assert xl_config.model_type == "transformer_xl_style"
     assert xl_config.refresh_enabled is False
     assert perceiver_config.model_type == "perceiver_latent"
     assert perceiver_config.refresh_enabled is False
+    assert adaptive_config.model_type == "adaptive_slot_srd"
+    assert adaptive_config.refresh_enabled is True
 
 
 def test_scaled_variant_aliases_map_to_base_variants() -> None:
     assert canonical_variant_name("transformer_full_large") == "transformer_full"
     assert canonical_variant_name("refresh_with_sufficiency_medium") == "refresh_with_sufficiency"
     assert canonical_variant_name("refresh_with_detail_small") == "refresh_with_detail"
+    assert canonical_variant_name("adaptive_slot_srd_large") == "adaptive_slot_srd"
 
 
 def test_srd_block_refresh_still_preserves_refresh_only_constraint() -> None:

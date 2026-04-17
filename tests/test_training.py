@@ -68,3 +68,11 @@ def test_block_refresh_detail_tiny_train_runs_stably() -> None:
     assert metrics["stable"] is True
     assert metrics["refresh_enabled"] is True
     assert metrics["sufficiency_enabled"] is True
+
+
+def test_adaptive_slot_tiny_train_reports_gate_metrics() -> None:
+    metrics = run_tiny_train(config=SRDConfig.preset("adaptive_slot_srd_tiny"), steps=4, batch_size=2)
+    assert metrics["stable"] is True
+    assert metrics["refresh_enabled"] is True
+    assert metrics["average_active_soft_slots_per_segment"] >= 0.0
+    assert metrics["memory_bank_slots_used"] >= 0.0

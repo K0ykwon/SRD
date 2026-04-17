@@ -12,20 +12,36 @@ from typing import Any
 class SRDConfig:
     """Holds the minimal SRD settings needed for model, train, and eval runs."""
 
+    model_family: str = ""
+    size_name: str = ""
+    target_parameter_count: int = 0
     model_type: str = "srd"
     vocab_size: int = 64
     d_model: int = 64
     num_heads: int = 4
     num_layers: int = 4
+    mlp_ratio: float = 4.0
+    max_seq_len: int = 0
     block_size: int = 8
     segment_length: int = 8
     local_window: int = 4
+    refresh_interval_blocks: int = 1
     refresh_slots: int = 2
+    refresh_slots_max: int = 2
     refresh_count: int = 2
     refresh_dim: int | None = None
+    refresh_gate_temperature: float = 1.0
+    refresh_gate_hard: bool = False
+    refresh_gate_topk: int = 0
+    refresh_role_scheme: str = "shared"
+    refresh_key_slot: bool = False
+    refresh_value_slot: bool = False
+    refresh_rule_slot: bool = False
+    refresh_write_gate_enabled: bool = False
     detail_enabled: bool = False
     detail_slots: int = 4
     detail_topk: int = 2
+    detail_scoring: str = "dot"
     detail_gate_enabled: bool = True
     detail_anchor_first: bool = True
     detail_anchor_last: bool = True
@@ -39,6 +55,13 @@ class SRDConfig:
     refresh_enabled: bool = True
     use_refresh: bool = True
     sufficiency_loss_weight: float = 0.0
+    beta_budget: float = 0.0
+    gamma_gate_entropy: float = 0.0
+    memory_keep_last_n_segments: int = 0
+    memory_read_mode: str = "slot_query_summary"
+    memory_read_every_n_layers: int = 1
+    bank_write_policy: str = "mean"
+    bank_merge_policy: str = "oldest_pair"
     dropout_p: float = 0.0
     causal: bool = True
     debug_mode: bool = False
@@ -49,6 +72,7 @@ class SRDConfig:
             "srd",
             "srd_block_refresh",
             "srd_block_refresh_detail",
+            "adaptive_slot_srd",
             "transformer_local",
             "transformer_full",
             "transformer_xl_style",
@@ -65,16 +89,36 @@ class SRDConfig:
             raise ValueError("segment_length must be positive")
         if self.local_window <= 0:
             raise ValueError("local_window must be positive")
+        if self.refresh_interval_blocks <= 0:
+            raise ValueError("refresh_interval_blocks must be positive")
         if self.num_layers <= 0:
             raise ValueError("num_layers must be positive")
         if self.refresh_slots <= 0:
             raise ValueError("refresh_slots must be positive")
+        if self.refresh_slots_max <= 0:
+            raise ValueError("refresh_slots_max must be positive")
         if self.refresh_count <= 0:
             raise ValueError("refresh_count must be positive")
+        if self.refresh_gate_temperature <= 0:
+            raise ValueError("refresh_gate_temperature must be positive")
+        if self.refresh_gate_topk < 0:
+            raise ValueError("refresh_gate_topk must be non-negative")
+        if self.refresh_role_scheme not in {"shared", "typed"}:
+            raise ValueError("refresh_role_scheme must be 'shared' or 'typed'")
+        if self.memory_keep_last_n_segments < 0:
+            raise ValueError("memory_keep_last_n_segments must be non-negative")
+        if self.memory_read_mode not in {"slot_query_summary", "pooled"}:
+            raise ValueError("memory_read_mode must be 'slot_query_summary' or 'pooled'")
+        if self.memory_read_every_n_layers <= 0:
+            raise ValueError("memory_read_every_n_layers must be positive")
+        if self.bank_write_policy not in {"mean", "importance_weighted"}:
+            raise ValueError("bank_write_policy must be 'mean' or 'importance_weighted'")
+        if self.bank_merge_policy not in {"oldest_pair", "lowest_importance_pair"}:
+            raise ValueError("bank_merge_policy must be 'oldest_pair' or 'lowest_importance_pair'")
         if self.detail_slots <= 0:
             raise ValueError("detail_slots must be positive")
-        if self.detail_topk <= 0:
-            raise ValueError("detail_topk must be positive")
+        if self.detail_topk < 0:
+            raise ValueError("detail_topk must be non-negative")
         if self.detail_saliency_slots < 0:
             raise ValueError("detail_saliency_slots must be non-negative")
         if self.memory_blocks <= 0:
@@ -90,13 +134,15 @@ class SRDConfig:
 
     def effective_block_size(self) -> int:
         """Returns the block size used by the configured model."""
-        if self.model_type == "srd_block_refresh":
+        if self.model_type in {"srd_block_refresh", "srd_block_refresh_detail", "adaptive_slot_srd"}:
             return self.block_size
         return self.segment_length
 
     def effective_refresh_slots(self) -> int:
         """Returns the active refresh-slot count for the configured model."""
-        if self.model_type == "srd_block_refresh":
+        if self.model_type == "adaptive_slot_srd":
+            return self.refresh_slots_max
+        if self.model_type in {"srd_block_refresh", "srd_block_refresh_detail"}:
             return self.refresh_slots
         return self.refresh_count
 
@@ -112,6 +158,8 @@ class SRDConfig:
             if self.sufficiency_loss_weight > 0:
                 return "refresh_with_sufficiency"
             return "refresh_no_sufficiency"
+        if self.model_type == "adaptive_slot_srd":
+            return "adaptive_slot_srd"
         if self.model_type == "srd_block_refresh_detail":
             if self.sufficiency_loss_weight > 0:
                 return "refresh_with_detail"
@@ -133,7 +181,9 @@ class SRDConfig:
         if "segment_length" not in values:
             values["segment_length"] = values.get("block_size", cls.segment_length)
         if "refresh_slots" not in values:
-            values["refresh_slots"] = values.get("refresh_count", cls.refresh_slots)
+            values["refresh_slots"] = values.get("refresh_slots_max", values.get("refresh_count", cls.refresh_slots))
+        if "refresh_slots_max" not in values:
+            values["refresh_slots_max"] = values.get("refresh_slots", cls.refresh_slots_max)
         if "refresh_count" not in values:
             values["refresh_count"] = values.get("refresh_slots", cls.refresh_count)
         if "refresh_enabled" not in values:
@@ -295,6 +345,27 @@ class SRDConfig:
                 detail_topk=2,
                 detail_saliency_slots=2,
                 sufficiency_loss_weight=0.0,
+                upper_layer_only_refresh=True,
+            ),
+            "adaptive_slot_srd_tiny": cls(
+                model_type="adaptive_slot_srd",
+                block_size=8,
+                segment_length=8,
+                refresh_slots=4,
+                refresh_slots_max=4,
+                refresh_count=4,
+                bank_size=16,
+                refresh_enabled=True,
+                use_refresh=True,
+                sufficiency_loss_weight=0.25,
+                beta_budget=0.01,
+                gamma_gate_entropy=0.001,
+                refresh_gate_temperature=1.0,
+                refresh_gate_hard=False,
+                refresh_gate_topk=0,
+                memory_keep_last_n_segments=4,
+                memory_read_mode="pooled",
+                memory_read_every_n_layers=2,
                 upper_layer_only_refresh=True,
             ),
         }

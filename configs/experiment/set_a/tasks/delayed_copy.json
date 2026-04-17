@@ -1,0 +1,51 @@
+{
+  "task_name": "delayed_copy",
+  "task_category": "non_compressible_exact_detail",
+  "split_sizes": {
+    "train": 200000,
+    "val": 5000,
+    "test": 5000
+  },
+  "vocab_size": 512,
+  "copy_span_length": 16,
+  "gap_segments": 6,
+  "distractor_density": 2,
+  "exact_recovery_required": true,
+  "difficulty_levels": {
+    "ultracompact_128": {
+      "segment_count": 2,
+      "segment_length": 64,
+      "total_length": 128
+    },
+    "ultracompact_256": {
+      "segment_count": 4,
+      "segment_length": 64,
+      "total_length": 256
+    },
+    "compact_512": {
+      "segment_count": 8,
+      "segment_length": 64,
+      "total_length": 512
+    },
+    "compact_1024": {
+      "segment_count": 16,
+      "segment_length": 64,
+      "total_length": 1024
+    },
+    "pilot": {
+      "segment_count": 32,
+      "segment_length": 64,
+      "total_length": 2048
+    },
+    "main_4k": {
+      "segment_count": 64,
+      "segment_length": 64,
+      "total_length": 4096
+    },
+    "main_8k": {
+      "segment_count": 128,
+      "segment_length": 64,
+      "total_length": 8192
+    }
+  }
+}

@@ -1,0 +1,62 @@
+{
+  "experiment_set": "reproduction_required_small_8k",
+  "description": "Required synthetic reproduction bundle at ~50M scale with 8k context.",
+  "model_families": [
+    "transformer_full",
+    "srd_refresh",
+    "srd_refresh_sufficiency",
+    "srd_refresh_sufficiency_detail"
+  ],
+  "model_sizes": [
+    "small"
+  ],
+  "context_lengths": [
+    8192
+  ],
+  "tasks": [
+    "delayed_kv",
+    "needle_retrieval",
+    "delayed_copy"
+  ],
+  "seeds": [
+    11,
+    17,
+    23
+  ],
+  "ablations": [
+    {
+      "name": "sufficiency_weight",
+      "values": [
+        0.0,
+        0.05,
+        0.1,
+        0.25,
+        0.5
+      ],
+      "scope": {
+        "model_families": [
+          "srd_refresh"
+        ],
+        "model_sizes": [
+          "small"
+        ],
+        "tasks": [
+          "delayed_kv",
+          "needle_retrieval",
+          "delayed_copy"
+        ],
+        "context_lengths": [
+          8192
+        ],
+        "seeds": [
+          11,
+          17,
+          23
+        ]
+      }
+    }
+  ],
+  "expected_main_run_count": 36,
+  "expected_ablation_run_count": 45,
+  "expected_total_run_count": 81
+}

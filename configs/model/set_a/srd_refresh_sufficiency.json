@@ -1,0 +1,11 @@
+{
+  "model_family": "srd_refresh_sufficiency",
+  "model_type": "srd_block_refresh",
+  "refresh_enabled": true,
+  "use_refresh": true,
+  "refresh_slots": 2,
+  "refresh_interval_blocks": 1,
+  "bank_size": 64,
+  "detail_enabled": false,
+  "sufficiency_loss_weight": 0.1
+}

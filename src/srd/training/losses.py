@@ -1,6 +1,6 @@
 """Loss helpers for next-token training and explicit refresh sufficiency regularization."""
 
-from typing import Dict
+from typing import Any, Dict
 
 import torch
 import torch.nn.functional as F
@@ -28,6 +28,7 @@ def compute_srd_loss(
     labels: Tensor,
     config: SRDConfig,
     token_weights: Tensor | None = None,
+    metadata: list[dict[str, Any]] | None = None,
 ) -> Dict[str, Tensor]:
     """Combines next-token loss with optional token weighting and sufficiency loss."""
     logits = outputs["logits"]
@@ -63,10 +64,43 @@ def compute_srd_loss(
         # current segment refresh output. This keeps the bottleneck explicit and easy to test.
         refresh_loss = F.mse_loss(predicted_summary, target_summary)
 
-    total_loss = nll_loss + config.sufficiency_loss_weight * refresh_loss
+    precomputed_budget_loss = outputs.get("refresh_budget_loss")
+    precomputed_gate_entropy_loss = outputs.get("refresh_gate_entropy_loss")
+    if precomputed_budget_loss is not None and precomputed_gate_entropy_loss is not None:
+        budget_loss = precomputed_budget_loss
+        gate_entropy_loss = precomputed_gate_entropy_loss
+    else:
+        soft_gates = outputs.get("soft_refresh_gates")
+        if soft_gates is None or soft_gates.numel() == 0:
+            budget_loss = torch.zeros((), device=logits.device)
+            gate_entropy_loss = torch.zeros((), device=logits.device)
+        else:
+            budget_loss = soft_gates.sum(dim=-1).mean()
+            clipped_gates = soft_gates.clamp(1e-6, 1.0 - 1e-6)
+            gate_entropy = -(
+                clipped_gates * clipped_gates.log() + (1.0 - clipped_gates) * (1.0 - clipped_gates).log()
+            )
+            gate_entropy_loss = -gate_entropy.mean()
+
+    relation_loss = torch.zeros((), device=logits.device)
+    binding_key_loss = torch.zeros((), device=logits.device)
+    binding_suffix_loss = torch.zeros((), device=logits.device)
+
+    regularization_loss = (
+        config.sufficiency_loss_weight * refresh_loss
+        + config.beta_budget * budget_loss
+        + config.gamma_gate_entropy * gate_entropy_loss
+    )
+    total_loss = nll_loss + regularization_loss
     return {
         "loss": total_loss,
         "nll_loss": nll_loss,
         "answer_loss": answer_loss,
         "sufficiency_loss": refresh_loss,
+        "budget_loss": budget_loss,
+        "gate_entropy_loss": gate_entropy_loss,
+        "regularization_loss": regularization_loss,
+        "relation_loss": relation_loss,
+        "binding_key_loss": binding_key_loss,
+        "binding_suffix_loss": binding_suffix_loss,
     }

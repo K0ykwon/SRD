@@ -3,6 +3,7 @@
 import math
 
 import torch
+import torch.nn.functional as F
 from torch import Tensor, nn
 
 
@@ -49,16 +50,89 @@ class FullBlock(nn.Module):
         key = reshape_heads(key)
         value = reshape_heads(value)
 
-        scores = torch.matmul(query, key.transpose(-2, -1)) / math.sqrt(self.head_dim)
-        mask = self._causal_mask(seq_len, hidden_states.device)
-        scores = scores.masked_fill(~mask[None, None, :, :], float("-inf"))
-        attention = torch.softmax(scores, dim=-1)
-        attention = self.dropout(attention)
-
-        attended = torch.matmul(attention, value)
+        if return_attention:
+            scores = torch.matmul(query, key.transpose(-2, -1)) / math.sqrt(self.head_dim)
+            mask = self._causal_mask(seq_len, hidden_states.device)
+            scores = scores.masked_fill(~mask[None, None, :, :], float("-inf"))
+            attention = torch.softmax(scores, dim=-1)
+            attention = self.dropout(attention)
+            attended = torch.matmul(attention, value)
+        else:
+            attended = F.scaled_dot_product_attention(
+                query,
+                key,
+                value,
+                attn_mask=None,
+                dropout_p=self.dropout.p if self.training else 0.0,
+                is_causal=True,
+            )
         attended = attended.transpose(1, 2).contiguous().view(batch_size, seq_len, self.d_model)
         hidden_states = residual + self.out_proj(attended)
         hidden_states = hidden_states + self.mlp(self.norm_2(hidden_states))
         if return_attention:
             return hidden_states, attention
         return hidden_states
+
+    def prefill_cache(self, hidden_states: Tensor) -> tuple[Tensor, dict[str, Tensor]]:
+        """Runs a full forward pass for one layer and returns layer KV cache."""
+        batch_size, seq_len, _ = hidden_states.shape
+        residual = hidden_states
+        normed = self.norm_1(hidden_states)
+        qkv = self.qkv(normed)
+        query, key, value = qkv.chunk(3, dim=-1)
+
+        def reshape_heads(x: Tensor) -> Tensor:
+            return x.view(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
+
+        query = reshape_heads(query)
+        key = reshape_heads(key)
+        value = reshape_heads(value)
+        attended = F.scaled_dot_product_attention(
+            query,
+            key,
+            value,
+            attn_mask=None,
+            dropout_p=self.dropout.p if self.training else 0.0,
+            is_causal=True,
+        )
+        attended = attended.transpose(1, 2).contiguous().view(batch_size, seq_len, self.d_model)
+        hidden_states = residual + self.out_proj(attended)
+        hidden_states = hidden_states + self.mlp(self.norm_2(hidden_states))
+        return hidden_states, {"key": key.detach(), "value": value.detach()}
+
+    def forward_step(self, hidden_states: Tensor, cache: dict[str, Tensor] | None = None) -> tuple[Tensor, dict[str, Tensor]]:
+        """Runs one incremental causal step and updates layer KV cache."""
+        batch_size, seq_len, _ = hidden_states.shape
+        if seq_len != 1:
+            raise ValueError("forward_step expects a single new token")
+        residual = hidden_states
+        normed = self.norm_1(hidden_states)
+        qkv = self.qkv(normed)
+        query, key, value = qkv.chunk(3, dim=-1)
+
+        def reshape_heads(x: Tensor) -> Tensor:
+            return x.view(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
+
+        query = reshape_heads(query)
+        key = reshape_heads(key)
+        value = reshape_heads(value)
+
+        if cache is None:
+            cached_key = key
+            cached_value = value
+        else:
+            cached_key = torch.cat([cache["key"], key], dim=2)
+            cached_value = torch.cat([cache["value"], value], dim=2)
+
+        attended = F.scaled_dot_product_attention(
+            query,
+            cached_key,
+            cached_value,
+            attn_mask=None,
+            dropout_p=self.dropout.p if self.training else 0.0,
+            is_causal=False,
+        )
+        attended = attended.transpose(1, 2).contiguous().view(batch_size, seq_len, self.d_model)
+        hidden_states = residual + self.out_proj(attended)
+        hidden_states = hidden_states + self.mlp(self.norm_2(hidden_states))
+        return hidden_states, {"key": cached_key.detach(), "value": cached_value.detach()}

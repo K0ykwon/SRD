@@ -1,0 +1,28 @@
+{
+  "experiment_set": "set_a",
+  "description": "Pilot matrix for Experiment Set A. Debug data generation, logging, metrics, and quality separation before scaling.",
+  "model_families": [
+    "transformer_local",
+    "transformer_full",
+    "srd_refresh",
+    "srd_refresh_sufficiency",
+    "srd_refresh_sufficiency_detail"
+  ],
+  "model_sizes": [
+    "small"
+  ],
+  "context_lengths": [
+    2048,
+    8192
+  ],
+  "tasks": [
+    "delayed_kv",
+    "delayed_copy",
+    "mixed_dependency"
+  ],
+  "seeds": [
+    11
+  ],
+  "ablations": [],
+  "expected_run_count": 30
+}

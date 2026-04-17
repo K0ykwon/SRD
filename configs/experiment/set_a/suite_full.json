@@ -1,0 +1,124 @@
+{
+  "experiment_set": "set_a",
+  "description": "Full Experiment Set A matrix for structural validation of refresh-based long-range routing.",
+  "model_families": [
+    "transformer_local",
+    "transformer_full",
+    "srd_refresh",
+    "srd_refresh_sufficiency",
+    "srd_refresh_sufficiency_detail"
+  ],
+  "model_sizes": [
+    "small",
+    "base"
+  ],
+  "context_lengths": [
+    2048,
+    4096,
+    8192
+  ],
+  "tasks": [
+    "delayed_kv",
+    "needle_retrieval",
+    "delayed_copy",
+    "mixed_dependency",
+    "multi_hop_segment_reasoning"
+  ],
+  "seeds": [
+    11,
+    17,
+    23
+  ],
+  "ablations": [
+    {
+      "name": "sufficiency_weight",
+      "values": [
+        0.0,
+        0.1
+      ],
+      "scope": {
+        "model_families": [
+          "srd_refresh"
+        ],
+        "model_sizes": [
+          "small"
+        ],
+        "tasks": [
+          "delayed_kv",
+          "delayed_copy",
+          "mixed_dependency"
+        ],
+        "context_lengths": [
+          2048,
+          8192
+        ],
+        "seeds": [
+          11,
+          17,
+          23
+        ]
+      }
+    },
+    {
+      "name": "detail_topk",
+      "values": [
+        0,
+        4
+      ],
+      "scope": {
+        "model_families": [
+          "srd_refresh_sufficiency_detail"
+        ],
+        "model_sizes": [
+          "small"
+        ],
+        "tasks": [
+          "delayed_kv",
+          "delayed_copy",
+          "mixed_dependency"
+        ],
+        "context_lengths": [
+          2048,
+          8192
+        ],
+        "seeds": [
+          11,
+          17,
+          23
+        ]
+      }
+    },
+    {
+      "name": "refresh_interval_blocks",
+      "values": [
+        1,
+        2
+      ],
+      "scope": {
+        "model_families": [
+          "srd_refresh_sufficiency"
+        ],
+        "model_sizes": [
+          "small"
+        ],
+        "tasks": [
+          "delayed_kv",
+          "delayed_copy",
+          "mixed_dependency"
+        ],
+        "context_lengths": [
+          2048,
+          8192
+        ],
+        "seeds": [
+          11,
+          17,
+          23
+        ]
+      }
+    }
+  ],
+  "expected_main_run_count": 450,
+  "expected_ablation_run_count": 108,
+  "expected_total_run_count": 558
+}

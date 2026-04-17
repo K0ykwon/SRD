@@ -1,0 +1,26 @@
+{
+  "experiment_set": "set_a",
+  "description": "Context sweep for needle retrieval and multi-hop reasoning with memory comparison.",
+  "model_families": [
+    "srd_refresh_sufficiency_detail",
+    "transformer_full"
+  ],
+  "model_sizes": [
+    "compact"
+  ],
+  "context_lengths": [
+    256,
+    512,
+    1024,
+    2048
+  ],
+  "tasks": [
+    "needle_retrieval",
+    "multi_hop_segment_reasoning"
+  ],
+  "seeds": [
+    11
+  ],
+  "ablations": [],
+  "expected_run_count": 16
+}
