@@ -271,6 +271,7 @@ Execution update
   - compact scale, 1024/2048 contexts, required synthetic tasks, seed 11
   - first used with a short smoke train config to check plumbing
   - next run uses the same `reproduction_required_longctx_16gb` 2400-step setting as the active long-context experiment, with output kept separate from the smoke artifacts
+- recorded the current partial result snapshot in `docs/results_snapshot_2026-04-18.md`; it summarizes completed per-run JSON files without committing raw output artifacts
 - restarted detached reproduction jobs under the restored full-history-only code; `--skip-existing` still preserves completed run JSONs and only redoes interrupted in-flight cells
 - next retrieval optimization path: keep full-history detail available, but add an optional coarse-to-fine grouped summary stage so refinement first selects a few detail groups and only then runs fine top-k inside those groups
 - implemented the first grouped coarse-to-fine detail path behind `detail_coarse_group_size/detail_coarse_topk_groups`, with default `0/0` preserving the old full-history behavior
