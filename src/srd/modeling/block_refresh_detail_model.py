@@ -282,6 +282,29 @@ class BlockRefreshDetailModel(BlockRefreshModel):
         fused = 0.5 * (refresh_context + detail_context)
         return fused, pooled_hidden.new_full((pooled_hidden.size(0), 1), 0.5)
 
+    def _fuse_long_context_parallel(
+        self,
+        refresh_context: Tensor,
+        refresh_mask: Tensor,
+        detail_context: Tensor,
+        detail_mask: Tensor,
+        pooled_hidden: Tensor,
+    ) -> tuple[Tensor, Tensor, Tensor]:
+        """Fuses per-block long contexts while preserving no-context blocks as true no-ops."""
+        refresh_active = refresh_mask.squeeze(-1)
+        detail_active = detail_mask.squeeze(-1)
+        has_context = refresh_active | detail_active
+        if self.config.detail_gate_enabled:
+            gate = torch.sigmoid(self.detail_gate(pooled_hidden))
+        else:
+            gate = pooled_hidden.new_full((*pooled_hidden.shape[:2], 1), 0.5)
+        both = refresh_active & detail_active
+        fused_both = gate * refresh_context + (1.0 - gate) * detail_context
+        fused = torch.where(both.unsqueeze(-1), fused_both, pooled_hidden.new_zeros(pooled_hidden.shape))
+        fused = torch.where((refresh_active & ~detail_active).unsqueeze(-1), refresh_context, fused)
+        fused = torch.where((detail_active & ~refresh_active).unsqueeze(-1), detail_context, fused)
+        return fused, gate, has_context.unsqueeze(-1)
+
     def _process_token_block_with_detail(
         self,
         block_ids: Tensor,
@@ -479,6 +502,7 @@ class BlockRefreshDetailModel(BlockRefreshModel):
             empty_context = pooled_hidden.new_zeros(batch_size, block_count, d_model)
             zero_stats = [0] * block_count
             return empty_context, {
+                "detail_has_context_mask": torch.zeros(batch_size, block_count, 1, device=pooled_hidden.device, dtype=torch.bool),
                 "detail_candidate_counts": zero_stats,
                 "detail_fine_candidate_counts": zero_stats,
                 "detail_group_counts": zero_stats,
@@ -524,6 +548,7 @@ class BlockRefreshDetailModel(BlockRefreshModel):
         topk_used_mean = topk_used.to(torch.float32).mean(dim=0).tolist()
         zero_stats = [0] * block_count
         return detail_context, {
+            "detail_has_context_mask": has_any,
             "detail_candidate_counts": [int(round(value)) for value in candidate_count_mean],
             "detail_fine_candidate_counts": [int(round(value)) for value in candidate_count_mean],
             "detail_group_counts": zero_stats,
@@ -531,20 +556,18 @@ class BlockRefreshDetailModel(BlockRefreshModel):
             "detail_topk_used": [int(round(value)) for value in topk_used_mean],
         }
 
-    def _forward_parallel_scan(
+    def _materialize_parallel_scan_block_pass(
         self,
-        input_ids: Tensor,
+        pre_hidden_blocks: Tensor,
         initial_bank_states: Tensor | None = None,
-    ) -> Dict[str, Tensor]:
-        """Runs an experimental block-parallel forward path over the detail model."""
+        precomputed_targets: Tensor | None = None,
+    ) -> dict[str, Any]:
+        """Runs the experimental block-parallel detail path and materializes decode-ready traces."""
         if not self.config.upper_layer_only_refresh:
             raise ValueError("parallel_scan detail forward mode requires upper_layer_only_refresh=True")
-        batch_size, seq_len = input_ids.shape
-        embeddings = self.embedding(input_ids)
-        block_embeddings, block_count, _ = self._reshape_blocks(embeddings)
-        pre_hidden_blocks = self._encode_blocks_parallel(block_embeddings)
+        batch_size, block_count, block_size, _ = pre_hidden_blocks.shape
         refresh_write_states, refresh_write_mask, refresh_blocks = self._build_parallel_refresh_traces(pre_hidden_blocks)
-        bank_states = initial_bank_states if initial_bank_states is not None else self.long_bank.empty(batch_size, input_ids.device)
+        bank_states = initial_bank_states if initial_bank_states is not None else self.long_bank.empty(batch_size, pre_hidden_blocks.device)
         initial_carry = bank_states[:, -1, :] if bank_states.size(1) > 0 else None
         prefix_carry_states, prefix_carry_mask, updated_carry_states, _ = self._scan_carry_traces_from_refresh_writes(
             refresh_write_states,
@@ -564,28 +587,26 @@ class BlockRefreshDetailModel(BlockRefreshModel):
             detail_slot_mask,
         )
 
-        flat_pooled = pooled_hidden.view(batch_size * block_count, self.config.d_model)
-        flat_carry = prefix_carry_states.view(batch_size * block_count, self.config.d_model)
-        flat_detail = detail_context.view(batch_size * block_count, self.config.d_model)
-        flat_fused, flat_gate = self._fuse_long_context(flat_carry, flat_detail, flat_pooled)
-        fused_context = flat_fused.view(batch_size, block_count, self.config.d_model)
-        gate = flat_gate.view(batch_size, block_count, 1)
-
-        post_inputs = pre_hidden_blocks + self.carry_to_post(fused_context).unsqueeze(2)
+        fused_context, gate, fused_context_mask = self._fuse_long_context_parallel(
+            prefix_carry_states,
+            prefix_carry_mask,
+            detail_context,
+            detail_trace["detail_has_context_mask"],
+            pooled_hidden,
+        )
+        post_delta = self.carry_to_post(fused_context).unsqueeze(2) * fused_context_mask.unsqueeze(2).to(pre_hidden_blocks.dtype)
+        post_inputs = pre_hidden_blocks + post_delta
         output_blocks = self._apply_local_stack_parallel(post_inputs, self.post_blocks)
-        hidden_states = output_blocks.view(batch_size, seq_len, self.config.d_model)
-        logits = self.lm_head(self.final_norm(hidden_states))
 
-        due_indices = self._refresh_due_mask(block_count, input_ids.device).nonzero(as_tuple=False).squeeze(-1)
+        due_indices = self._refresh_due_mask(block_count, pre_hidden_blocks.device).nonzero(as_tuple=False).squeeze(-1)
         for block_index in due_indices.tolist():
             carry_after_write = updated_carry_states[:, block_index, :]
             bank_entry = self.bank_entry_proj(carry_after_write).unsqueeze(1)
             bank_states = self.long_bank.write(bank_states, bank_entry)
 
-        precomputed_targets = self._precompute_next_block_targets(input_ids)
         valid_pred_indices = due_indices[due_indices + 1 < block_count]
-        empty = self._empty_state(batch_size, input_ids.device)
-        if valid_pred_indices.numel() > 0:
+        empty = self._empty_state(batch_size, pre_hidden_blocks.device)
+        if valid_pred_indices.numel() > 0 and precomputed_targets is not None:
             predicted_summary = self.sufficiency_head(updated_carry_states[:, valid_pred_indices, :])
             target_summary = precomputed_targets[:, valid_pred_indices + 1, :]
         else:
@@ -600,12 +621,66 @@ class BlockRefreshDetailModel(BlockRefreshModel):
         if refresh_norm_mask.any():
             refresh_norm_mean = float(updated_carry_states[refresh_norm_mask].view(-1, self.config.d_model).norm(dim=-1).mean().cpu().item())
 
+        carry_context = updated_carry_states[:, -1, :] if bool(refresh_write_mask.any().item()) or initial_carry is not None else None
+        next_logits = self._next_token_logits(output_blocks[:, -1, :, :]) if block_count > 0 else None
+        detail_key_blocks = detail_keys.view(batch_size, -1, self.config.d_model).detach()
+        detail_value_blocks = detail_values.view(batch_size, -1, self.config.d_model).detach()
+
         return {
-            "logits": logits,
+            "output_blocks": output_blocks,
             "hidden_states": empty,
             "refresh_states": refresh_states,
             "detail_states": detail_states_out,
             "bank_states": bank_states.detach(),
+            "carry_context": carry_context,
+            "next_logits": next_logits,
+            "detail_key_blocks": detail_key_blocks,
+            "detail_value_blocks": detail_value_blocks,
+            "detail_write_index": int(detail_key_blocks.size(1)),
+            "predicted_summary": predicted_summary,
+            "target_summary": target_summary,
+            "prefix_carry_states": prefix_carry_states,
+            "prefix_carry_mask": prefix_carry_mask,
+            "fused_context_states": fused_context,
+            "fused_context_mask": fused_context_mask,
+            "refresh_write_states": refresh_write_states,
+            "refresh_write_mask": refresh_write_mask,
+            "detail_trace": detail_trace,
+            "detail_gate_mean": float(gate.mean().detach().cpu().item()),
+            "detail_selected_count_mean": float(detail_states.size(2)),
+            "refresh_norm_mean": refresh_norm_mean,
+        }
+
+    def _forward_parallel_scan(
+        self,
+        input_ids: Tensor,
+        initial_bank_states: Tensor | None = None,
+    ) -> Dict[str, Tensor]:
+        """Runs an experimental block-parallel forward path over the detail model."""
+        batch_size, seq_len = input_ids.shape
+        embeddings = self.embedding(input_ids)
+        block_embeddings, block_count, _ = self._reshape_blocks(embeddings)
+        precomputed_targets = self._precompute_next_block_targets(input_ids)
+        pre_hidden_blocks = self._encode_blocks_parallel(block_embeddings)
+        parallel_outputs = self._materialize_parallel_scan_block_pass(
+            pre_hidden_blocks,
+            initial_bank_states,
+            precomputed_targets,
+        )
+        hidden_states = parallel_outputs["output_blocks"].view(batch_size, seq_len, self.config.d_model)
+        logits = self.lm_head(self.final_norm(hidden_states))
+        refresh_states = parallel_outputs["refresh_states"]
+        detail_states_out = parallel_outputs["detail_states"]
+        predicted_summary = parallel_outputs["predicted_summary"]
+        target_summary = parallel_outputs["target_summary"]
+        detail_trace = parallel_outputs["detail_trace"]
+
+        return {
+            "logits": logits,
+            "hidden_states": parallel_outputs["hidden_states"],
+            "refresh_states": refresh_states,
+            "detail_states": detail_states_out,
+            "bank_states": parallel_outputs["bank_states"],
             "predicted_summary": predicted_summary,
             "target_summary": target_summary,
             "debug": {
@@ -622,12 +697,13 @@ class BlockRefreshDetailModel(BlockRefreshModel):
                 "detail_topk": self.config.detail_topk,
                 "detail_scan_carry_mode": self.config.detail_scan_carry_mode,
                 "detail_forward_mode": self.config.detail_forward_mode,
+                "detail_decode_mode": self.config.detail_decode_mode,
                 "detail_coarse_group_size": self.config.detail_coarse_group_size,
                 "detail_coarse_topk_groups": self.config.detail_coarse_topk_groups,
                 "detail_state_shape": tuple(detail_states_out.shape),
                 "refresh_state_shape": tuple(refresh_states.shape),
-                "prefix_carry_state_shape": tuple(prefix_carry_states.shape),
-                "fused_context_state_shape": tuple(fused_context.shape),
+                "prefix_carry_state_shape": tuple(parallel_outputs["prefix_carry_states"].shape),
+                "fused_context_state_shape": tuple(parallel_outputs["fused_context_states"].shape),
                 "bank_read_blocks": 0,
                 "bank_read_segments": 0,
                 "bank_read_slots": 0,
@@ -638,10 +714,10 @@ class BlockRefreshDetailModel(BlockRefreshModel):
                 "detail_fine_candidate_count_mean": float(sum(detail_trace["detail_fine_candidate_counts"]) / max(len(detail_trace["detail_fine_candidate_counts"]), 1)),
                 "detail_group_count_mean": float(sum(detail_trace["detail_group_counts"]) / max(len(detail_trace["detail_group_counts"]), 1)),
                 "detail_group_topk_used_mean": float(sum(detail_trace["detail_group_topk_used"]) / max(len(detail_trace["detail_group_topk_used"]), 1)),
-                "detail_selected_count_mean": float(detail_states.size(2)),
+                "detail_selected_count_mean": parallel_outputs["detail_selected_count_mean"],
                 "detail_topk_used_mean": float(sum(detail_trace["detail_topk_used"]) / max(len(detail_trace["detail_topk_used"]), 1)),
-                "detail_gate_mean": float(gate.mean().detach().cpu().item()),
-                "refresh_norm_mean": refresh_norm_mean,
+                "detail_gate_mean": parallel_outputs["detail_gate_mean"],
+                "refresh_norm_mean": parallel_outputs["refresh_norm_mean"],
             },
         }
 
@@ -1001,6 +1077,34 @@ class BlockRefreshDetailModel(BlockRefreshModel):
             "refresh_write_mask": online_outputs["refresh_write_mask"],
         }
 
+    def _scan_completed_blocks_prefill_parallel(
+        self,
+        completed_pre_hidden_blocks: Tensor,
+        initial_bank_states: Tensor,
+    ) -> dict[str, Any]:
+        """Builds completed-block decode state through the experimental block-parallel path."""
+        parallel_outputs = self._materialize_parallel_scan_block_pass(
+            completed_pre_hidden_blocks,
+            initial_bank_states,
+            precomputed_targets=None,
+        )
+        return {
+            "carry_context": parallel_outputs["carry_context"],
+            "bank_states": parallel_outputs["bank_states"],
+            "detail_key_blocks": parallel_outputs["detail_key_blocks"],
+            "detail_value_blocks": parallel_outputs["detail_value_blocks"],
+            "detail_write_index": parallel_outputs["detail_write_index"],
+            "next_logits": parallel_outputs["next_logits"],
+            "prefix_carry_states": parallel_outputs["prefix_carry_states"],
+            "prefix_carry_mask": parallel_outputs["prefix_carry_mask"],
+            "online_prefix_carry_states": parallel_outputs["prefix_carry_states"],
+            "online_prefix_carry_mask": parallel_outputs["prefix_carry_mask"],
+            "fused_context_states": parallel_outputs["fused_context_states"],
+            "fused_context_mask": parallel_outputs["fused_context_mask"],
+            "refresh_write_states": parallel_outputs["refresh_write_states"],
+            "refresh_write_mask": parallel_outputs["refresh_write_mask"],
+        }
+
     def _apply_detail_post_stack(
         self,
         hidden_states: Tensor,
@@ -1178,13 +1282,19 @@ class BlockRefreshDetailModel(BlockRefreshModel):
             completed_embeddings = self.embedding(input_ids[:, :prefix_len])
             completed_block_embeddings, _, _ = self._reshape_blocks(completed_embeddings)
             completed_pre_hidden_blocks = self._encode_blocks_parallel(completed_block_embeddings)
-            completed_outputs = self._scan_completed_blocks_prefill(
-                completed_pre_hidden_blocks,
-                bank_states,
-                detail_key_blocks,
-                detail_value_blocks,
-                detail_write_index,
-            )
+            if self.config.detail_forward_mode == "parallel_scan":
+                completed_outputs = self._scan_completed_blocks_prefill_parallel(
+                    completed_pre_hidden_blocks,
+                    bank_states,
+                )
+            else:
+                completed_outputs = self._scan_completed_blocks_prefill(
+                    completed_pre_hidden_blocks,
+                    bank_states,
+                    detail_key_blocks,
+                    detail_value_blocks,
+                    detail_write_index,
+                )
             carry_context = completed_outputs["carry_context"]
             bank_states = completed_outputs["bank_states"]
             detail_key_blocks = completed_outputs["detail_key_blocks"]
@@ -1202,6 +1312,7 @@ class BlockRefreshDetailModel(BlockRefreshModel):
         open_pre_caches = self._empty_local_stack_caches(self.pre_blocks)
         open_block_hidden = torch.empty(batch_size, block_size, self.config.d_model, device=input_ids.device)
         open_block_len = 0
+        open_fused_context = None
         if open_block_ids.size(1) > 0:
             hidden_states = self.embedding(open_block_ids)
             hidden_states, open_pre_caches = self._prefill_local_stack_cache(hidden_states, self.pre_blocks)
@@ -1216,7 +1327,12 @@ class BlockRefreshDetailModel(BlockRefreshModel):
                 detail_write_index,
                 pooled_hidden=open_pre_sum / max(open_block_len, 1),
             )
+            open_fused_context = fused_context.detach() if fused_context is not None else None
             if detail_context is None:
+                if fused_context is not None:
+                    hidden_states = hidden_states + self.carry_to_post(fused_context).unsqueeze(1)
+                hidden_states, open_post_caches = self._prefill_local_stack_cache(hidden_states, self.post_blocks)
+            elif self.config.detail_decode_mode == "cached_block":
                 if fused_context is not None:
                     hidden_states = hidden_states + self.carry_to_post(fused_context).unsqueeze(1)
                 hidden_states, open_post_caches = self._prefill_local_stack_cache(hidden_states, self.post_blocks)
@@ -1234,6 +1350,7 @@ class BlockRefreshDetailModel(BlockRefreshModel):
             "open_pre_caches": open_pre_caches,
             "open_post_caches": open_post_caches,
             "open_block_hidden": open_block_hidden,
+            "open_fused_context": open_fused_context,
             "open_block_len": open_block_len,
             "completed_blocks": completed_blocks,
             "carry_context": carry_context.detach() if carry_context is not None else None,
@@ -1250,6 +1367,8 @@ class BlockRefreshDetailModel(BlockRefreshModel):
 
     def decode_step(self, next_input_ids: Tensor, state: dict[str, Any]) -> dict[str, Any]:
         """Appends one token and recomputes only the current open block for the detail variant."""
+        if self.config.detail_decode_mode == "cached_block":
+            return self._decode_step_cached_detail(next_input_ids, state)
         if next_input_ids.dim() == 1:
             next_input_ids = next_input_ids.unsqueeze(1)
         carry_context = state["carry_context"]
@@ -1337,6 +1456,108 @@ class BlockRefreshDetailModel(BlockRefreshModel):
             "open_pre_caches": open_pre_caches,
             "open_post_caches": open_post_caches,
             "open_block_hidden": open_block_hidden,
+            "open_fused_context": None,
+            "open_block_len": open_block_len,
+            "completed_blocks": completed_blocks,
+            "carry_context": carry_context.detach() if carry_context is not None else None,
+            "bank_states": bank_states.detach(),
+            "detail_key_blocks": detail_key_blocks,
+            "detail_value_blocks": detail_value_blocks,
+            "detail_write_index": detail_write_index,
+            "next_logits": next_logits,
+        }
+
+    def _decode_step_cached_detail(self, next_input_ids: Tensor, state: dict[str, Any]) -> dict[str, Any]:
+        """Decode step that freezes detail context within the open block to keep post caches valid."""
+        if next_input_ids.dim() == 1:
+            next_input_ids = next_input_ids.unsqueeze(1)
+        carry_context = state["carry_context"]
+        bank_states = state["bank_states"]
+        completed_blocks = int(state["completed_blocks"])
+        detail_key_blocks = state["detail_key_blocks"]
+        detail_value_blocks = state["detail_value_blocks"]
+        open_pre_hidden = state["open_pre_hidden"]
+        open_pre_sum = state["open_pre_sum"]
+        open_block_hidden = state["open_block_hidden"]
+        open_block_len = int(state["open_block_len"])
+        detail_write_index = int(state.get("detail_write_index", detail_key_blocks.size(1)))
+        open_fused_context = state.get("open_fused_context")
+
+        hidden_states = self.embedding(next_input_ids)
+        hidden_states, open_pre_caches = self._decode_local_stack_step(
+            hidden_states,
+            self.pre_blocks,
+            state.get("open_pre_caches"),
+        )
+        open_pre_hidden[:, open_block_len : open_block_len + 1, :] = hidden_states.detach()
+        open_pre_sum = open_pre_sum + hidden_states.detach().squeeze(1)
+        current_block_len = open_block_len + 1
+        pre_hidden = open_pre_hidden[:, :current_block_len, :]
+
+        if open_fused_context is None:
+            pre_hidden, _, _, fused_context, _, _ = self._scan_block_state(
+                pre_hidden,
+                carry_context,
+                detail_key_blocks,
+                detail_value_blocks,
+                detail_write_index,
+                pooled_hidden=open_pre_sum / current_block_len,
+            )
+            open_fused_context = fused_context.detach() if fused_context is not None else None
+        else:
+            fused_context = open_fused_context
+
+        token_hidden = pre_hidden[:, -1:, :]
+        if fused_context is not None:
+            token_hidden = token_hidden + self.carry_to_post(fused_context).unsqueeze(1)
+        token_hidden, open_post_caches = self._decode_local_stack_step(
+            token_hidden,
+            self.post_blocks,
+            state.get("open_post_caches"),
+        )
+        next_logits = self._next_token_logits(token_hidden).detach()
+        open_block_hidden[:, open_block_len:current_block_len, :] = token_hidden.detach()
+        open_block_len = current_block_len
+
+        if open_block_len == self.config.effective_block_size():
+            completed_pre_hidden = open_pre_hidden[:, :open_block_len, :]
+            completed_pre_hidden, _, _, final_fused_context, _, _ = self._scan_block_state(
+                completed_pre_hidden,
+                carry_context,
+                detail_key_blocks,
+                detail_value_blocks,
+                detail_write_index,
+                pooled_hidden=open_pre_sum / open_block_len,
+            )
+            completed_hidden = self._apply_conditioned_post_blocks(completed_pre_hidden, final_fused_context)
+            next_logits = self._next_token_logits(completed_hidden).detach()
+            open_block_hidden[:, :open_block_len, :] = completed_hidden.detach()
+            completed_blocks += 1
+            carry_context, bank_states, _, _, _ = self._update_detail_refresh_state(
+                completed_hidden,
+                carry_context,
+                bank_states,
+                completed_blocks,
+            )
+            detail_key_blocks, detail_value_blocks, detail_write_index = self._write_detail_kv_cache(
+                completed_hidden,
+                detail_key_blocks,
+                detail_value_blocks,
+                detail_write_index,
+            )
+            open_pre_sum = torch.zeros_like(open_pre_sum)
+            open_block_len = 0
+            open_fused_context = None
+            open_pre_caches = self._empty_local_stack_caches(self.pre_blocks)
+            open_post_caches = self._empty_local_stack_caches(self.post_blocks)
+
+        return {
+            "open_pre_hidden": open_pre_hidden,
+            "open_pre_sum": open_pre_sum,
+            "open_pre_caches": open_pre_caches,
+            "open_post_caches": open_post_caches,
+            "open_block_hidden": open_block_hidden,
+            "open_fused_context": open_fused_context,
             "open_block_len": open_block_len,
             "completed_blocks": completed_blocks,
             "carry_context": carry_context.detach() if carry_context is not None else None,
@@ -1407,6 +1628,7 @@ class BlockRefreshDetailModel(BlockRefreshModel):
                 "detail_topk": self.config.detail_topk,
                 "detail_scan_carry_mode": self.config.detail_scan_carry_mode,
                 "detail_forward_mode": self.config.detail_forward_mode,
+                "detail_decode_mode": self.config.detail_decode_mode,
                 "detail_coarse_group_size": self.config.detail_coarse_group_size,
                 "detail_coarse_topk_groups": self.config.detail_coarse_topk_groups,
                 "detail_state_shape": tuple(detail_states.shape),

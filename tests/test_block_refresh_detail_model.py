@@ -34,6 +34,7 @@ def test_detail_model_outputs_expected_shapes() -> None:
     assert outputs["debug"]["detail_enabled"] is True
     assert outputs["debug"]["detail_scan_carry_mode"] == "legacy"
     assert outputs["debug"]["detail_forward_mode"] == "sequential"
+    assert outputs["debug"]["detail_decode_mode"] == "sequential"
     assert outputs["debug"]["detail_coarse_group_size"] == 0
     assert outputs["debug"]["detail_coarse_topk_groups"] == 0
     assert outputs["debug"]["prefix_carry_state_shape"] == (2, 2, config.d_model)
@@ -59,7 +60,24 @@ def test_parallel_scan_detail_forward_preserves_output_surface() -> None:
     assert outputs["refresh_states"].shape[2] == config.d_model
     assert outputs["detail_states"].shape[2] == config.d_model
     assert outputs["debug"]["detail_forward_mode"] == "parallel_scan"
+    assert outputs["debug"]["detail_decode_mode"] == "sequential"
     assert outputs["debug"]["refresh_bank_access_count"] == 0
+
+
+def test_parallel_scan_prefill_matches_parallel_forward_on_completed_blocks() -> None:
+    config = SRDConfig.preset("block_refresh_detail_tiny")
+    config.detail_forward_mode = "parallel_scan"
+    model = BlockRefreshDetailModel(config)
+    model.eval()
+    input_ids = torch.randint(0, config.vocab_size, (1, config.block_size * 3))
+
+    outputs = model(input_ids)
+    state = model.prefill(input_ids)
+
+    assert torch.allclose(state["next_logits"], outputs["logits"][:, -1, :], atol=1e-5, rtol=1e-5)
+    assert state["detail_write_index"] == config.detail_slots * 3
+    assert state["completed_prefix_carry_states"].shape == (1, 3, config.d_model)
+    assert state["completed_fused_context_states"].shape == (1, 3, config.d_model)
 
 
 def test_parallel_scan_detail_forward_backpropagates() -> None:
@@ -74,6 +92,49 @@ def test_parallel_scan_detail_forward_backpropagates() -> None:
 
     assert model.detail_query_proj.weight.grad is not None
     assert model.block_to_refresh.weight.grad is not None
+
+
+def test_cached_detail_decode_reuses_open_block_context() -> None:
+    config = SRDConfig.preset("block_refresh_detail_tiny")
+    config.detail_decode_mode = "cached_block"
+    model = BlockRefreshDetailModel(config)
+    model.eval()
+    prefix = torch.randint(0, config.vocab_size, (1, config.block_size))
+    next_tokens = torch.randint(0, config.vocab_size, (1, 2))
+    state = model.prefill(prefix)
+    scan_count = 0
+    original_scan = model._scan_block_state
+
+    def counted_scan(*args, **kwargs):
+        nonlocal scan_count
+        scan_count += 1
+        return original_scan(*args, **kwargs)
+
+    model._scan_block_state = counted_scan  # type: ignore[method-assign]
+    state = model.decode_step(next_tokens[:, :1], state)
+    assert scan_count == 1
+    assert state["open_fused_context"] is not None
+    state = model.decode_step(next_tokens[:, 1:], state)
+
+    assert scan_count == 1
+    assert state["open_block_len"] == 2
+
+
+def test_cached_detail_decode_rematerializes_exact_block_at_boundary() -> None:
+    config = SRDConfig.preset("block_refresh_detail_tiny")
+    config.detail_decode_mode = "cached_block"
+    model = BlockRefreshDetailModel(config)
+    model.eval()
+    prefix = torch.randint(0, config.vocab_size, (1, config.block_size + config.block_size - 1))
+    next_token = torch.randint(0, config.vocab_size, (1, 1))
+    completed = torch.cat([prefix, next_token], dim=1)
+
+    state = model.prefill(prefix)
+    state = model.decode_step(next_token, state)
+    outputs = model(completed)
+
+    assert state["open_block_len"] == 0
+    assert torch.allclose(state["next_logits"], outputs["logits"][:, -1, :], atol=1e-5, rtol=1e-5)
 
 
 def test_parallel_scan_rejects_grouped_detail_retrieval() -> None:

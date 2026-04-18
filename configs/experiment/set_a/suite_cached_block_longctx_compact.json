@@ -1,0 +1,29 @@
+{
+  "experiment_set": "cached_block_longctx_main",
+  "description": "Cached-block decode SRD detail compact shard matching the main long-context reproduction matrix without ablations.",
+  "model_families": [
+    "srd_refresh_sufficiency_detail_parallel"
+  ],
+  "model_sizes": [
+    "compact"
+  ],
+  "context_lengths": [
+    1024,
+    2048,
+    4096
+  ],
+  "tasks": [
+    "delayed_kv",
+    "needle_retrieval",
+    "delayed_copy"
+  ],
+  "seeds": [
+    11,
+    17,
+    23
+  ],
+  "ablations": [],
+  "expected_main_run_count": 27,
+  "expected_ablation_run_count": 0,
+  "expected_total_run_count": 27
+}

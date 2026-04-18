@@ -221,7 +221,7 @@ The long-context bundle is the intended paper-facing default for the required sy
 
 The planned structural follow-up for the detail variant is documented in `docs/scan_first_redesign.md`. That note defines the mechanism-preserving boundary and the expected prefill/decode measurement split for any scan-first implementation.
 
-The repository now also contains an opt-in `detail_forward_mode="parallel_scan"` path for the detail model. It is experimental, forward-only, and should be reported separately from the default sequential path until both quality and throughput behavior are stable.
+The repository now also contains an opt-in `detail_forward_mode="parallel_scan"` path for the detail model. It is experimental and should be reported separately from the default sequential path until both quality and throughput behavior are stable. The matching decode-side optimization is `detail_decode_mode="cached_block"`, which removes the per-token open-block detail scan by caching the fused context inside a block and rematerializing the exact block once at the boundary.
 
 A focused compact comparison is available at:
 

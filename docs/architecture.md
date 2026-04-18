@@ -177,7 +177,7 @@ The detail variant now also exposes a first explicit carry-state update switch t
 - `legacy`: use the original refresh carry update
 - `affine`: interpolate between the previous carry state and the new refresh write at refresh boundaries
 
-It also exposes an experimental forward-only execution switch through `detail_forward_mode`:
+It also exposes an experimental block-parallel execution switch through `detail_forward_mode`:
 
 - `sequential`: keep the current block-sequential detail path
 - `parallel_scan`: run `forward()` as block-parallel `pre`, block-parallel refresh proposals, compact carry scan, and block-parallel detail/post
@@ -185,9 +185,16 @@ It also exposes an experimental forward-only execution switch through `detail_fo
 Current constraints for `parallel_scan`:
 
 - it is experimental and opt-in only
-- it leaves `prefill()` and `decode_step()` on the original sequential path
+- `prefill()` uses the same block-parallel completed-prefix materialization when this mode is enabled
 - it currently requires `upper_layer_only_refresh=True`
 - it currently does not support grouped coarse detail retrieval
+
+Decode has a separate opt-in switch through `detail_decode_mode`:
+
+- `sequential`: exact reference behavior; the open-block detail query may be recomputed every generated token
+- `cached_block`: cache the first fused refresh/detail context for the current open block so the upper local stack can use incremental KV caches, then rematerialize the full block once at the boundary before refresh/detail writes
+
+The cached decode path preserves the refresh-only routing rule. It is not token-level global attention; regular tokens still receive only a block-level fused context.
 
 ## Architectural Invariants
 
@@ -209,10 +216,13 @@ For SRD block-refresh variants, the intended behavior is:
 - bank state is updated only at block boundaries
 - the currently open block may reuse local-block KV caches instead of rerunning its full local stack from scratch
 - in the base refresh model, both the open-block lower and upper local stacks may be cached while the carried refresh context stays fixed
-- in the detail model, the open-block lower local stack may be cached even if the upper stack is recomputed because detail fusion depends on the evolving open-block summary
+- in the detail model's default sequential mode, the open-block lower local stack may be cached even if the upper stack is recomputed because detail fusion depends on the evolving open-block summary
+- in the detail model's cached-block mode, the fused detail context is frozen inside the open block so both lower and upper local stacks can use incremental caches; the final full block is recomputed once before memory writes
 - regular tokens still never read the long-memory bank directly during decode
 
 This interface exists to remove avoidable prefix re-execution in decode benchmarks without changing the routing constraint.
+
+See `docs/decode_parallelization.md` for the decode cache design and approximation boundary.
 
 ## Comparison Baselines
 

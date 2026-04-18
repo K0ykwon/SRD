@@ -272,6 +272,29 @@ Execution update
   - first used with a short smoke train config to check plumbing
   - next run uses the same `reproduction_required_longctx_16gb` 2400-step setting as the active long-context experiment, with output kept separate from the smoke artifacts
 - recorded the current partial result snapshot in `docs/results_snapshot_2026-04-18.md`; it summarizes completed per-run JSON files without committing raw output artifacts
+- next decode-side parallelization step:
+  - keep autoregressive token generation sequential
+  - parallelize `prefill()` completed-block processing when `detail_forward_mode="parallel_scan"`
+  - keep open-block `decode_step()` incremental and cache-based
+  - fix the experimental parallel path so blocks with no long-range context receive no `carry_to_post` bias from a zero placeholder
+- decode-side parallelization implementation update:
+  - added `detail_decode_mode="cached_block"` as an opt-in decode mode
+  - moved parallel completed-block `prefill()` onto the shared `parallel_scan` materialization helper
+  - cached the open-block fused refresh/detail context so per-token decode can reuse post-stack local KV caches
+  - rematerialized the completed open block once at the boundary before writing refresh/detail memory to reduce long-state drift
+  - documented the approximation and cache layout in `docs/decode_parallelization.md`
+- cached-block validation run:
+  - run only `srd_refresh_sufficiency_detail_parallel` with `detail_decode_mode="cached_block"`
+  - reuse the focused compact conditions from the previous parallel-vs-transformer suite: compact scale, contexts `1024/2048`, tasks `delayed_kv/needle_retrieval/delayed_copy`, seed `11`, 2400 training steps
+  - keep artifacts separate under `outputs/reproduction/parallel_detail_cached_block_compact_full`
+- cached-block longctx main run:
+  - run only `srd_refresh_sufficiency_detail_parallel` with `detail_decode_mode="cached_block"`
+  - match the main long-context reproduction matrix without sufficiency ablations: scales `compact/small`, contexts `1024/2048/4096`, tasks `delayed_kv/needle_retrieval/delayed_copy`, seeds `11/17/23`
+  - keep artifacts separate under `outputs/reproduction/cached_block_longctx_main`
+  - resume as two non-overlapping size shards against the same output directory:
+    - `cached_block_longctx_compact.service` on GPU1
+    - `cached_block_longctx_small.service` on GPU0
+  - use `--skip-existing` so completed cached JSONs are reused and interrupted in-flight cells are redone once
 - restarted detached reproduction jobs under the restored full-history-only code; `--skip-existing` still preserves completed run JSONs and only redoes interrupted in-flight cells
 - next retrieval optimization path: keep full-history detail available, but add an optional coarse-to-fine grouped summary stage so refinement first selects a few detail groups and only then runs fine top-k inside those groups
 - implemented the first grouped coarse-to-fine detail path behind `detail_coarse_group_size/detail_coarse_topk_groups`, with default `0/0` preserving the old full-history behavior

@@ -1,0 +1,26 @@
+{
+  "experiment_set": "parallel_detail_cached_block_compact",
+  "description": "Focused compact cached-block decode validation for opt-in parallel detail SRD.",
+  "model_families": [
+    "srd_refresh_sufficiency_detail_parallel"
+  ],
+  "model_sizes": [
+    "compact"
+  ],
+  "context_lengths": [
+    1024,
+    2048
+  ],
+  "tasks": [
+    "delayed_kv",
+    "needle_retrieval",
+    "delayed_copy"
+  ],
+  "seeds": [
+    11
+  ],
+  "ablations": [],
+  "expected_main_run_count": 6,
+  "expected_ablation_run_count": 0,
+  "expected_total_run_count": 6
+}

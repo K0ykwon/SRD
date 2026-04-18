@@ -14,5 +14,6 @@
   "detail_anchor_last": true,
   "detail_saliency_slots": 6,
   "detail_forward_mode": "parallel_scan",
+  "detail_decode_mode": "cached_block",
   "sufficiency_loss_weight": 0.1
 }

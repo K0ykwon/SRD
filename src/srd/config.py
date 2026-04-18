@@ -45,6 +45,7 @@ class SRDConfig:
     detail_gate_enabled: bool = True
     detail_scan_carry_mode: str = "legacy"
     detail_forward_mode: str = "sequential"
+    detail_decode_mode: str = "sequential"
     detail_coarse_group_size: int = 0
     detail_coarse_topk_groups: int = 0
     detail_anchor_first: bool = True
@@ -127,6 +128,8 @@ class SRDConfig:
             raise ValueError("detail_scan_carry_mode must be 'legacy' or 'affine'")
         if self.detail_forward_mode not in {"sequential", "parallel_scan"}:
             raise ValueError("detail_forward_mode must be 'sequential' or 'parallel_scan'")
+        if self.detail_decode_mode not in {"sequential", "cached_block"}:
+            raise ValueError("detail_decode_mode must be 'sequential' or 'cached_block'")
         if self.detail_coarse_group_size < 0:
             raise ValueError("detail_coarse_group_size must be non-negative")
         if self.detail_coarse_topk_groups < 0:
@@ -173,7 +176,7 @@ class SRDConfig:
         if self.model_type == "adaptive_slot_srd":
             return "adaptive_slot_srd"
         if self.model_type == "srd_block_refresh_detail":
-            if self.detail_forward_mode == "parallel_scan":
+            if self.detail_forward_mode == "parallel_scan" or self.detail_decode_mode == "cached_block":
                 return "refresh_with_detail_parallel"
             if self.sufficiency_loss_weight > 0:
                 return "refresh_with_detail"
