@@ -29,11 +29,19 @@ class FullBlock(nn.Module):
             nn.GELU(),
             nn.Linear(4 * d_model, d_model),
         )
+        self._mask_cache: dict[tuple[int, str], Tensor] = {}
 
     def _causal_mask(self, seq_len: int, device: torch.device) -> Tensor:
         """Builds the standard decoder-style causal attention mask."""
+        device_key = f"{device.type}:{device.index if device.index is not None else -1}"
+        cache_key = (seq_len, device_key)
+        cached = self._mask_cache.get(cache_key)
+        if cached is not None:
+            return cached
         positions = torch.arange(seq_len, device=device)
-        return positions[:, None] >= positions[None, :]
+        mask = positions[:, None] >= positions[None, :]
+        self._mask_cache[cache_key] = mask
+        return mask
 
     def forward(self, hidden_states: Tensor, return_attention: bool = False) -> Tensor | tuple[Tensor, Tensor]:
         """Updates all positions using full causal self-attention."""

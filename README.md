@@ -18,7 +18,8 @@ In plain engineering terms, SRD tries to make long-range interaction happen at s
 In short formal language: SRD is a decoder with local-only token updates and scheduled refresh-mediated access to a shared bounded long-memory bank.
 
 The first paper-facing implementation in this repo is a block-based SRD variant exposed as `srd_block_refresh`.
-An extension exposed as `srd_block_refresh_detail` keeps the refresh bottleneck intact while adding a tiny bounded detail-retrieval path for non-compressible long-range information.
+An extension exposed as `srd_block_refresh_detail` keeps the refresh bottleneck intact while adding a tiny bounded detail-retrieval path for non-compressible long-range information. That path now supports an optional coarse-to-fine grouped retrieval mode while leaving the original full-history detail retrieval as the default behavior.
+The detail variant now also exposes an experimental `detail_forward_mode="parallel_scan"` path for `forward()` only. It keeps refresh/detail routing block-bounded, leaves the default sequential execution unchanged, and parallelizes the heavy block work as `all pre -> parallel refresh proposals -> compact carry scan -> parallel detail/post`.
 An experimental learned-capacity variant exposed as `adaptive_slot_srd` keeps refresh tensors fixed-shape while learning how many refresh slots to use per segment.
 
 ## Why SRD Exists
@@ -151,6 +152,7 @@ Adaptive-slot note:
 
 - see `docs/adaptive_slot_srd.md` for the fixed-shape learned-capacity refresh design and config surface
 - see `docs/reproduction_required.md` for the required Delayed KV / Needle / Delayed Copy reproduction bundle, the sufficiency lambda sweep, and the score/aggregate audit path
+- see `docs/scan_first_redesign.md` for the planned mechanism-preserving scan-first redesign of the detail SRD path
 
 Run individual conventional baselines on a chosen synthetic benchmark config:
 

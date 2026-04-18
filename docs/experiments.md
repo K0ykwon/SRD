@@ -219,6 +219,21 @@ The required public reproduction path now has two tiers:
 
 The long-context bundle is the intended paper-facing default for the required synthetic tasks:
 
+The planned structural follow-up for the detail variant is documented in `docs/scan_first_redesign.md`. That note defines the mechanism-preserving boundary and the expected prefill/decode measurement split for any scan-first implementation.
+
+The repository now also contains an opt-in `detail_forward_mode="parallel_scan"` path for the detail model. It is experimental, forward-only, and should be reported separately from the default sequential path until both quality and throughput behavior are stable.
+
+A focused compact comparison is available at:
+
+- `configs/experiment/set_a/suite_parallel_detail_vs_transformer_compact.json`
+
+This suite compares only:
+
+- `srd_refresh_sufficiency_detail_parallel`
+- `transformer_full`
+
+It is intended as a short validation path for the forward-parallel detail implementation, not as a replacement for the main long-context reproduction bundle.
+
 - scales: `compact (~15M)` and `small (~50M)`
 - contexts: `1024`, `2048`, `4096`
 - tasks: `delayed_kv`, `needle_retrieval`, `delayed_copy`

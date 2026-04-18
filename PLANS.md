@@ -206,6 +206,86 @@ Metric convention
 - `binding_accuracy` is exact gold value-span match
 - `retrieval_hit` is an operationalized memory-hit metric: the predicted value span belongs to the in-context candidate-value catalog, even if bound to the wrong key
 
+### Active redesign — scan-first detail path
+
+Goal
+
+- remove the current block-by-block structural bottleneck from the detail SRD path without relaxing the refresh-only routing rule
+- preserve the paper claim that long-range interaction flows through bounded block-level bottlenecks rather than direct token-level global access
+
+Decision
+
+- treat Mamba-style scan parallelization as a structural reference, not as a requirement to adopt Mamba modules
+- separate the redesign into three explicit deliverables before implementation:
+  - a mechanism-preservation spec
+  - a boundary document for what still counts as SRD versus what would collapse into a generic memory-token model
+  - a code-level two-pass mapping from the current sequential block loop to a future scan-first implementation
+
+Concrete focus
+
+- represent inter-block carry as an explicit bounded block state instead of implicit sequential bank side effects
+- split the current `detail retrieval -> post stack` loop into:
+  - a block-parallel summary pass
+  - a block-axis scan over compact states
+  - a block-parallel conditioning pass
+- move detail retrieval to a refinement stage that follows a compact prefix summary rather than driving the entire long-range path directly
+- keep regular-token access local-only and keep any global path bounded, segment-triggered, and inspectable
+
+Validation
+
+- the redesign spec states which invariants are preserved and which changes would violate SRD's mechanism
+- the future implementation plan names the files, intermediate tensors, and pass boundaries that would change
+- the plan makes clear which parts are intended for research implementation next and which remain out of scope
+
+Execution update
+
+- added `docs/scan_first_redesign.md` as the mechanism-preserving redesign reference
+- linked the redesign note from `README.md`, `docs/architecture.md`, and `docs/experiments.md`
+- completed the first no-behavior-change refactor in `src/srd/modeling/block_refresh_detail_model.py`:
+  - `encode` stage via `_encode_blocks_parallel(...)`
+  - sequential-compatibility `scan` stage via `_scan_block_state(...)`
+  - explicit conditioned `post` stage via `_apply_conditioned_post_blocks(...)`
+- added an explicit per-block long-range state trace in the detail `forward()` path via `_scan_detail_block_sequence(...)`
+- the current trace still follows sequential semantics, but the carry/fused-context tensors are now explicit bounded intermediates instead of only implicit loop state
+- moved completed-block `prefill()` execution onto `_scan_completed_blocks_prefill(...)` so `forward()` and `prefill()` now expose the same staged inter-block state semantics
+- added the first explicit carry recurrence hook behind `detail_scan_carry_mode`:
+  - `legacy` preserves the old carry update
+  - `affine` interpolates between the previous carry state and the new refresh write
+- replaced online-only prefix-carry tracing with an explicit refresh-write trace plus `_scan_carry_sequence_from_refresh_writes(...)`
+- added parity checks that the refresh-write scan reconstructs the same prefix carry trace as the online sequential execution
+- unified `forward()` and completed-block `prefill()` around `_materialize_online_detail_block_pass(...)` so both now share the same first-pass online materialization structure
+- split the shared online materialization path further into `_materialize_online_detail_block_step(...)` plus the pass-level orchestrator
+- next structural step: make detail retrieval explicitly a refinement stage after coarse carry materialization, even before true parallel scan is implemented
+- tried a bounded recent-candidate refinement option and discarded it because it risks degrading the original full-history detail path
+- removed the recent-only refinement path from config, model code, tests, and docs so the repository again exposes only the original full-history detail retrieval behavior
+- removed the overengineered replay/selective-replay execution branches because they did not deliver stable throughput wins and added complexity to the active research path
+- next implementation step is a true opt-in block-parallel forward path for the detail model:
+  - keep the default sequential execution unchanged
+  - restrict the experimental parallel path to `forward()` first
+  - parallelize heavy block work as `all pre -> parallel refresh proposals -> compact carry scan -> parallel detail/post`
+  - keep the refresh bottleneck explicit and keep regular-token access local-only
+  - do not switch detached benchmark services onto the new path until it has separate smoke and profiler validation
+- added a focused comparison suite for the opt-in parallel detail path:
+  - `configs/experiment/set_a/suite_parallel_detail_vs_transformer_compact.json`
+  - compares only `srd_refresh_sufficiency_detail_parallel` and `transformer_full`
+  - compact scale, 1024/2048 contexts, required synthetic tasks, seed 11
+  - first used with a short smoke train config to check plumbing
+  - next run uses the same `reproduction_required_longctx_16gb` 2400-step setting as the active long-context experiment, with output kept separate from the smoke artifacts
+- restarted detached reproduction jobs under the restored full-history-only code; `--skip-existing` still preserves completed run JSONs and only redoes interrupted in-flight cells
+- next retrieval optimization path: keep full-history detail available, but add an optional coarse-to-fine grouped summary stage so refinement first selects a few detail groups and only then runs fine top-k inside those groups
+- implemented the first grouped coarse-to-fine detail path behind `detail_coarse_group_size/detail_coarse_topk_groups`, with default `0/0` preserving the old full-history behavior
+- initial compact smoke/profiler results did not show a consistent throughput win:
+  - benchmark smoke regressed on both tasks tested
+  - decode throughput generally regressed
+  - prefill improved only in one cold-sensitive cell and regressed or mixed elsewhere
+- keep grouped retrieval optional and non-default until a better coarse summary or routing policy is available
+- hard constraint for subsequent work:
+  - do not change the active default detail path
+  - do not switch detached experiments onto experimental execution modes
+  - any new structural optimization must remain opt-in behind config flags until it shows no quality regression and no throughput regression on the matched smoke/profiler cells
+- removed the experimental `two_pass_replay` / selective replay / alternate refresh-write-source branches because they added complexity without proving a stable throughput win
+- kept the current implementation sequential while making the future two-pass boundaries explicit in code
+
 ### Active redesign — general relation-preserving refresh
 
 Goal
@@ -377,15 +457,47 @@ Execution update
 - the default long-context public runner should therefore target the `16GB` card conservatively with `micro_batch_size=1`
 - add a separate `small`-only `8k` suite instead of overloading the mixed `1k/2k/4k` suite further
 - validate the new path with a real `MAX_RUNS` smoke execution before treating it as the default reproduction entry point
+- no local `tmux` or `screen` is available in the current environment, so resilient execution should use detached shell launch plus on-disk run JSON checkpoints
+- add suite-resume support keyed by existing run JSON files so interrupted long runs can restart without recomputing completed cells
+- reorder the required suites so `srd_refresh_sufficiency_detail` runs before the weaker refresh and dense baselines
+
+### Active diagnostic — separate decode profiling
+
+Goal
+
+- measure whether the SRD detail path actually wins where it is supposed to win: long-prefix incremental decode
+- separate full-forward benchmark throughput from prefill/decode-specific throughput and memory
+
+Decision
+
+- add a dedicated profiling entry point instead of overloading the training benchmark runner further
+- compare `srd_refresh_sufficiency_detail` and `transformer_full` on matched Set A cells
+- report prefill tok/s, decode tok/s, and peak memory separately
+
+Concrete focus
+
+- build one small profiling module under `src/srd/eval`
+- let it reuse Set A task config resolution and model-config building
+- expose one shell wrapper for quick repeated runs
+- write compact CSV/JSON artifacts under `outputs/profiling/`
+- support decode-length overrides so profiling can measure many incremental decode steps even when the task answer span is short
+
+Validation
+
+- a short compact-cell profiling run completes for both families
+- the output artifact includes separate prefill and decode timing fields
+- the output artifact includes enough decode steps that one-step timing noise does not dominate
+- the script is runnable independently of the main training benchmark suites
 
 Execution update
 
 - current implementation work focuses on low-risk overhead removal in `srd_refresh_sufficiency_detail` before rerunning the `detail vs transformer_full` comparison
 - immediate code targets:
   - remove per-block `clone()` on detail-history slices in training/eval forward
-  - replace repeated `torch.cat()` growth in detail decode caches with indexed writes into reusable buffers
-  - replace repeated `torch.cat()` growth for open-block pre hidden states with fixed-capacity block buffers plus running sums
-  - preserve exact logits for existing forward/prefill/decode tests
+  - parallelize completed-block `pre_blocks` work during `prefill()` instead of rerunning the pre stack inside the block loop
+  - replace per-token full open-block `post_blocks` recomputation with bounded suffix recomputation and a one-time full recompute only when the block closes
+  - shrink prefill/decode memory traffic by dropping dead detail-state buffers from decode state, computing next-token logits from the last token only, and writing detached detail KV caches under no-grad
+  - keep completed-block semantics unchanged while preserving exact logits for existing forward/prefill/decode tests
 - after the optimization patch:
   - rerun targeted model tests
   - rerun a focused `refresh_with_detail` vs `transformer_full` benchmark comparison

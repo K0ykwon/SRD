@@ -1,0 +1,18 @@
+{
+  "model_family": "srd_refresh_sufficiency_detail_parallel",
+  "model_type": "srd_block_refresh_detail",
+  "refresh_enabled": true,
+  "use_refresh": true,
+  "refresh_slots": 2,
+  "refresh_interval_blocks": 1,
+  "bank_size": 64,
+  "detail_enabled": true,
+  "detail_slots": 8,
+  "detail_topk": 4,
+  "detail_scoring": "dot",
+  "detail_anchor_first": true,
+  "detail_anchor_last": true,
+  "detail_saliency_slots": 6,
+  "detail_forward_mode": "parallel_scan",
+  "sufficiency_loss_weight": 0.1
+}

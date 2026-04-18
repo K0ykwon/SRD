@@ -12,7 +12,7 @@ An optional extension, `srd_block_refresh_detail`, adds a second but much smalle
 
 - each processed block stores only a few detail slots
 - detail slots are chosen from anchors plus a tiny saliency-selected set
-- future blocks may retrieve only top-k detail slots globally
+- future blocks may retrieve detail either from the full global slot cache or through an optional coarse-to-fine grouped summary stage before the final top-k
 - refresh remains the default summary path and detail remains auxiliary
 
 An experimental `adaptive_slot_srd` variant keeps the same scheduled refresh routing but changes how refresh capacity is represented:
@@ -160,7 +160,8 @@ Retrieval:
 
 - current block local states are pooled into a query
 - similarity is computed only against stored detail-slot keys
-- only global top-k detail slots are used
+- by default the full stored detail-slot history is visible to refinement
+- an optional grouped summary stage may first select a few detail groups, then run fine top-k only inside those groups
 - no dense attention over all past token states is allowed
 
 Fusion:
@@ -168,6 +169,25 @@ Fusion:
 - refresh carry remains the primary long-range context
 - detail retrieval is fused with it by a small scalar gate
 - if gating is disabled, the implementation falls back to a simple average
+
+The current implementation is still block-sequential in its detail path. The planned scan-first redesign keeps the same routing rule while moving toward a block-parallel summary pass, a block-axis compact-state scan, and a refinement-only detail retrieval stage. See `docs/scan_first_redesign.md`.
+
+The detail variant now also exposes a first explicit carry-state update switch through `detail_scan_carry_mode`:
+
+- `legacy`: use the original refresh carry update
+- `affine`: interpolate between the previous carry state and the new refresh write at refresh boundaries
+
+It also exposes an experimental forward-only execution switch through `detail_forward_mode`:
+
+- `sequential`: keep the current block-sequential detail path
+- `parallel_scan`: run `forward()` as block-parallel `pre`, block-parallel refresh proposals, compact carry scan, and block-parallel detail/post
+
+Current constraints for `parallel_scan`:
+
+- it is experimental and opt-in only
+- it leaves `prefill()` and `decode_step()` on the original sequential path
+- it currently requires `upper_layer_only_refresh=True`
+- it currently does not support grouped coarse detail retrieval
 
 ## Architectural Invariants
 

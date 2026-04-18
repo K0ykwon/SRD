@@ -1,0 +1,27 @@
+{
+  "experiment_set": "parallel_detail_vs_transformer_compact",
+  "description": "Focused compact comparison between opt-in parallel detail SRD and transformer_full.",
+  "model_families": [
+    "srd_refresh_sufficiency_detail_parallel",
+    "transformer_full"
+  ],
+  "model_sizes": [
+    "compact"
+  ],
+  "context_lengths": [
+    1024,
+    2048
+  ],
+  "tasks": [
+    "delayed_kv",
+    "needle_retrieval",
+    "delayed_copy"
+  ],
+  "seeds": [
+    11
+  ],
+  "ablations": [],
+  "expected_main_run_count": 12,
+  "expected_ablation_run_count": 0,
+  "expected_total_run_count": 12
+}

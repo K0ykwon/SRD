@@ -30,12 +30,20 @@ class LocalBlock(nn.Module):
             nn.GELU(),
             nn.Linear(4 * d_model, d_model),
         )
+        self._mask_cache: dict[tuple[int, str], Tensor] = {}
 
     def _local_causal_mask(self, seq_len: int, device: torch.device) -> Tensor:
         """Builds a small diagnostic mask for return_attention mode."""
+        device_key = f"{device.type}:{device.index if device.index is not None else -1}"
+        cache_key = (seq_len, device_key)
+        cached = self._mask_cache.get(cache_key)
+        if cached is not None:
+            return cached
         positions = torch.arange(seq_len, device=device)
         distance = positions[:, None] - positions[None, :]
-        return (distance >= 0) & (distance <= self.window_size)
+        mask = (distance >= 0) & (distance <= self.window_size)
+        self._mask_cache[cache_key] = mask
+        return mask
 
     def _reshape_heads(self, x: Tensor, batch_size: int, seq_len: int) -> Tensor:
         return x.view(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)

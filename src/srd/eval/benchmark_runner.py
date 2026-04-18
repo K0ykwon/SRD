@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import nullcontext
 import json
 import math
 import subprocess
@@ -33,6 +34,7 @@ MODEL_FAMILY_TO_VARIANT = {
     "srd_refresh": "refresh_no_sufficiency",
     "srd_refresh_sufficiency": "refresh_with_sufficiency",
     "srd_refresh_sufficiency_detail": "refresh_with_detail",
+    "srd_refresh_sufficiency_detail_parallel": "refresh_with_detail",
 }
 
 
@@ -250,6 +252,8 @@ def run_benchmark_experiment(
     train_steps: int = 32,
     eval_batches: int = 8,
     batch_size: int = 8,
+    gradient_accumulation_steps: int = 1,
+    precision: str = "fp32",
     learning_rate: float = 3e-3,
     answer_loss_weight: float = 1.0,
     lm_loss_weight: float = 0.25,
@@ -259,9 +263,12 @@ def run_benchmark_experiment(
     run_name: str = "",
     task_category: str = "",
     log_prefix: str = "",
+    track_best_state: bool = True,
 ) -> Dict[str, Any]:
     """Trains one variant on one synthetic benchmark and returns metrics."""
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if device.type == "cuda":
+        torch.set_float32_matmul_precision("high")
     train_dataset = make_synthetic_dataset(benchmark_config)
     eval_dataset = make_synthetic_dataset(
         SyntheticBenchmarkConfig(**{**benchmark_config.to_dict(), "split": "test"})
@@ -291,52 +298,79 @@ def run_benchmark_experiment(
     train_gate_entropy_curve = []
     train_step_times = []
     checkpoint_interval = max(1, train_steps // 5)
+    accumulation_steps = max(1, gradient_accumulation_steps)
+    autocast_context = nullcontext
+    if device.type == "cuda":
+        if precision == "bf16":
+            autocast_context = lambda: torch.autocast(device_type="cuda", dtype=torch.bfloat16)
+        elif precision == "fp16":
+            autocast_context = lambda: torch.autocast(device_type="cuda", dtype=torch.float16)
     model.train()
     for step in range(train_steps):
         step_start = time.perf_counter()
-        batch = train_dataset.make_batch(step * batch_size, batch_size, device)
-        outputs = model(batch["input_ids"])
-        losses = compute_srd_loss(
-            outputs,
-            batch["labels"],
-            model_config,
-            token_weights=batch["loss_weights"],
-            metadata=batch.get("metadata"),
-        )
-        answer_loss = compute_answer_loss(outputs["logits"], batch["answer_positions"], batch["answer_tokens"])
-        total_loss = (
-            lm_loss_weight * losses["nll_loss"]
-            + answer_loss_weight * answer_loss
-            + losses["regularization_loss"]
-        )
         optimizer.zero_grad(set_to_none=True)
-        total_loss.backward()
+        step_total_loss = 0.0
+        step_nll_loss = 0.0
+        step_sufficiency_loss = 0.0
+        step_budget_loss = 0.0
+        step_gate_entropy_loss = 0.0
+        last_outputs = None
+        last_batch = None
+        for micro_step in range(accumulation_steps):
+            sample_offset = (step * accumulation_steps + micro_step) * batch_size
+            batch = train_dataset.make_batch(sample_offset, batch_size, device)
+            with autocast_context():
+                outputs = model(batch["input_ids"])
+                losses = compute_srd_loss(
+                    outputs,
+                    batch["labels"],
+                    model_config,
+                    token_weights=batch["loss_weights"],
+                    metadata=batch.get("metadata"),
+                )
+                answer_loss = compute_answer_loss(outputs["logits"], batch["answer_positions"], batch["answer_tokens"])
+                total_loss = (
+                    lm_loss_weight * losses["nll_loss"]
+                    + answer_loss_weight * answer_loss
+                    + losses["regularization_loss"]
+                )
+            (total_loss / accumulation_steps).backward()
+            step_total_loss += float(total_loss.detach().cpu())
+            step_nll_loss += float(losses["nll_loss"].detach().cpu())
+            step_sufficiency_loss += float(losses["sufficiency_loss"].detach().cpu())
+            step_budget_loss += float(losses["budget_loss"].detach().cpu())
+            step_gate_entropy_loss += float(losses["gate_entropy_loss"].detach().cpu())
+            last_outputs = outputs
+            last_batch = batch
         torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip_norm)
         optimizer.step()
         scheduler.step()
+        mean_total_loss = step_total_loss / accumulation_steps
 
         if initial_train_loss is None:
-            initial_train_loss = float(total_loss.detach().cpu())
-        final_train_loss = float(total_loss.detach().cpu())
-        train_loss_curve.append(float(total_loss.detach().cpu()))
-        train_sufficiency_curve.append(float(losses["sufficiency_loss"].detach().cpu()))
-        train_budget_curve.append(float(losses["budget_loss"].detach().cpu()))
-        train_gate_entropy_curve.append(float(losses["gate_entropy_loss"].detach().cpu()))
+            initial_train_loss = mean_total_loss
+        final_train_loss = mean_total_loss
+        train_loss_curve.append(mean_total_loss)
+        train_sufficiency_curve.append(step_sufficiency_loss / accumulation_steps)
+        train_budget_curve.append(step_budget_loss / accumulation_steps)
+        train_gate_entropy_curve.append(step_gate_entropy_loss / accumulation_steps)
         train_step_times.append(time.perf_counter() - step_start)
 
-        with torch.no_grad():
-            score = train_dataset.score_batch(outputs["logits"], batch)
         snapshot_due = step == 0 or (step + 1) == train_steps or (step + 1) % checkpoint_interval == 0
-        if snapshot_due and score["metric_value"] >= best_metric:
+        score = None
+        if snapshot_due and last_outputs is not None and last_batch is not None:
+            with torch.no_grad():
+                score = train_dataset.score_batch(last_outputs["logits"], last_batch)
+        if track_best_state and snapshot_due and score is not None and score["metric_value"] >= best_metric:
             best_metric = float(score["metric_value"])
             best_state = {
                 name: tensor.detach().cpu().clone()
                 for name, tensor in model.state_dict().items()
             }
-        if log_prefix and snapshot_due:
+        if log_prefix and snapshot_due and score is not None:
             print(
                 f"{log_prefix} train step {step + 1}/{train_steps} "
-                f"loss={float(total_loss.detach().cpu()):.4f} metric={float(score['metric_value']):.4f}",
+                f"loss={mean_total_loss:.4f} metric={float(score['metric_value']):.4f}",
                 flush=True,
             )
 
@@ -365,15 +399,16 @@ def run_benchmark_experiment(
         for batch_index in range(eval_batches):
             eval_step_start = time.perf_counter()
             batch = eval_dataset.make_batch(batch_index * batch_size, batch_size, device)
-            outputs = model(batch["input_ids"])
-            losses = compute_srd_loss(
-                outputs,
-                batch["labels"],
-                model_config,
-                token_weights=batch["loss_weights"],
-                metadata=batch.get("metadata"),
-            )
-            answer_loss = compute_answer_loss(outputs["logits"], batch["answer_positions"], batch["answer_tokens"])
+            with autocast_context():
+                outputs = model(batch["input_ids"])
+                losses = compute_srd_loss(
+                    outputs,
+                    batch["labels"],
+                    model_config,
+                    token_weights=batch["loss_weights"],
+                    metadata=batch.get("metadata"),
+                )
+                answer_loss = compute_answer_loss(outputs["logits"], batch["answer_positions"], batch["answer_tokens"])
             score = eval_dataset.score_batch(outputs["logits"], batch)
 
             lm_losses.append(float(losses["nll_loss"].detach().cpu()))
@@ -536,6 +571,11 @@ def _build_set_a_model_config(model_family: str, model_size: str, benchmark_conf
     return build_model_config(model_family, benchmark_config, config_overrides=merged)
 
 
+def _suite_run_path(output_dir: str | Path, run_name: str) -> Path:
+    safe_name = "".join(char if char.isalnum() or char in {"-", "_"} else "_" for char in run_name)
+    return Path(output_dir) / f"{safe_name}.json"
+
+
 def expand_suite_runs(suite_path: str | Path) -> list[dict[str, Any]]:
     suite = _load_json(suite_path)
     runs = []
@@ -609,6 +649,7 @@ def run_suite(
     output_dir: str | Path,
     max_runs: int | None = None,
     include_ablations: bool = False,
+    skip_existing: bool = False,
 ) -> list[dict[str, Any]]:
     train_config = _load_json(train_config_path)
     runs = expand_suite_runs(suite_path)
@@ -618,6 +659,13 @@ def run_suite(
         runs = runs[:max_runs]
     results = []
     for run in runs:
+        existing_path = _suite_run_path(output_dir, run["run_name"])
+        if skip_existing and existing_path.exists():
+            with existing_path.open("r", encoding="utf-8") as handle:
+                cached = json.load(handle)
+            results.append(cached)
+            print(f"[suite] skip existing run={run['run_name']}", flush=True)
+            continue
         print(
             f"[suite] start run={run['run_name']} task={run['task_name']} family={run['model_family']} "
             f"size={run['model_size']} ctx={run['context_length']} seed={run['seed']}",
@@ -643,6 +691,8 @@ def run_suite(
             train_steps=train_config["max_steps"],
             eval_batches=max(1, train_config["eval_every"] // max(train_config["log_every"], 1)),
             batch_size=train_config["micro_batch_size"],
+            gradient_accumulation_steps=train_config.get("gradient_accumulation_steps", 1),
+            precision=train_config.get("precision", "fp32"),
             learning_rate=train_config["lr"],
             answer_loss_weight=train_config.get("answer_loss_weight", 1.0),
             lm_loss_weight=train_config.get("lm_loss_weight", 0.25),
@@ -652,6 +702,7 @@ def run_suite(
             run_name=run["run_name"],
             task_category=run["task_category"],
             log_prefix=f"[{run['run_name']}]",
+            track_best_state=train_config.get("track_best_state", False),
         )
         result["task_label"] = run["task_name"]
         result["model_size"] = run["model_size"]
@@ -688,6 +739,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--train-config", default=None, help="Train config for suite mode")
     parser.add_argument("--max-runs", type=int, default=None, help="Optional cap for suite debugging")
     parser.add_argument("--include-ablations", action="store_true")
+    parser.add_argument("--skip-existing", action="store_true", help="Reuse existing per-run JSON files in suite mode")
     return parser.parse_args()
 
 
@@ -702,6 +754,7 @@ if __name__ == "__main__":
             args.output_dir,
             max_runs=args.max_runs,
             include_ablations=args.include_ablations,
+            skip_existing=args.skip_existing,
         )
         print({"runs": len(results), "output_dir": args.output_dir})
     else:

@@ -12,6 +12,11 @@ Recommended wrappers:
 - `run_reproduction_required.sh`
 - `run_reproduction_required_longctx.sh`
 - `run_reproduction_required_small_8k.sh`
+- `launch_reproduction_required_detached.sh`
+- `status_reproduction_required_detached.sh`
+- `snapshot_reproduction_progress.sh`
+- `profile_detail_vs_transformer_decode.sh`
+  - supports `DECODE_STEPS` to force longer incremental decode profiling even on short-answer synthetic tasks
 - `run_reproduction_audit.sh`
 
 Rules:

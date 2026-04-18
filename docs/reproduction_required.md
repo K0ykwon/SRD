@@ -122,6 +122,10 @@ The default long-context shell wrapper now targets the current workstation's `16
 - `bf16`
 - reduced checkpoint cadence relative to the original Set A main preset
 
+Required long-context suites now start from `srd_refresh_sufficiency_detail` first, followed by the simpler refresh variants and then the dense baseline. This makes the early finished cells more relevant to the active SRD question.
+
+For long detached runs, prefer the detached launch wrappers under `scripts/` together with suite resume via existing per-run JSON files. The suite runner now supports `--skip-existing` so interrupted launches can resume from the current output directory instead of restarting the whole matrix.
+
 The `8k` follow-up bundle size is:
 
 - main runs: `36`

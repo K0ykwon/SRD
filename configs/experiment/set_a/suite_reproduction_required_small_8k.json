@@ -2,10 +2,10 @@
   "experiment_set": "reproduction_required_small_8k",
   "description": "Required synthetic reproduction bundle at ~50M scale with 8k context.",
   "model_families": [
-    "transformer_full",
-    "srd_refresh",
+    "srd_refresh_sufficiency_detail",
     "srd_refresh_sufficiency",
-    "srd_refresh_sufficiency_detail"
+    "srd_refresh",
+    "transformer_full"
   ],
   "model_sizes": [
     "small"
