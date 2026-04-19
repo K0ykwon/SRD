@@ -258,6 +258,12 @@ Execution update
 - next structural step: make detail retrieval explicitly a refinement stage after coarse carry materialization, even before true parallel scan is implemented
 - tried a bounded recent-candidate refinement option and discarded it because it risks degrading the original full-history detail path
 - removed the recent-only refinement path from config, model code, tests, and docs so the repository again exposes only the original full-history detail retrieval behavior
+- completed the cached-block long-context continuation:
+  - `54 / 54` cached-block runs completed under `outputs/reproduction/cached_block_longctx_main`
+  - final aggregate metric `0.9606`, forward throughput `233586.71 tok/s`, decode throughput `280.94 tok/s`, average peak memory `565.46 MiB`
+  - `delayed_kv` and `needle_retrieval` reached `1.0000` across all `compact` and `small` cells
+  - `delayed_copy` remains the main weak point at context `2048`, with both `compact` and `small` averaging `0.6667`
+  - final committed summary is `docs/results_snapshot_2026-04-19_cached_block_final.md`
 - removed the overengineered replay/selective-replay execution branches because they did not deliver stable throughput wins and added complexity to the active research path
 - next implementation step is a true opt-in block-parallel forward path for the detail model:
   - keep the default sequential execution unchanged
